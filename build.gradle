@@ -5,31 +5,41 @@ plugins {
 group = 'com.jrl.ai'
 version = '0.1.0-SNAPSHOT'
 
-java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
-    withJavadocJar()
-    withSourcesJar()
-}
+subprojects {
+    apply plugin: 'java-library'
 
-repositories {
-    mavenCentral()
-}
+    group = 'com.jrl.ai'
+    version = rootProject.version
 
-dependencies {
-    // Logging
-    implementation 'org.slf4j:slf4j-api:2.0.13'
+    java {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
 
-    // Testing
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-}
+    javadoc {
+        options.addBooleanOption('Xdoclint:none', true)
+        failOnError = false
+    }
 
-tasks.named('test') {
-    useJUnitPlatform()
-}
+    repositories {
+        mavenCentral()
+    }
 
-tasks.withType(JavaCompile).configureEach {
-    options.encoding = 'UTF-8'
-    options.compilerArgs.addAll(['-parameters'])
+    dependencies {
+        // Logging
+        implementation 'org.slf4j:slf4j-api:2.0.13'
+
+        // Testing
+        testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+
+    tasks.named('test') {
+        useJUnitPlatform()
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+        options.compilerArgs.addAll(['-parameters'])
+    }
 }

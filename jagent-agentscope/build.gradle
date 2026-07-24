@@ -1,0 +1,5 @@
+description = 'JAgent AgentScope 扩展 - 适配 AgentScope 框架'
+
+dependencies {
+    api project(':jagent-core')
+}
