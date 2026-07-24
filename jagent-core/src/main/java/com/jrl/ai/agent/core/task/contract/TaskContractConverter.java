@@ -3,35 +3,23 @@ package com.jrl.ai.agent.core.task.contract;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.task.Task;
 
-import java.util.Map;
-
 /**
- * 协议转换器 — 将 TaskRequest 转换为框架内部模型
+ * 协议转换器 — TaskRequest ↔ Task 的转换
  */
 public final class TaskContractConverter {
 
     private TaskContractConverter() {}
 
+    /**
+     * 将外部请求转为内部 Task
+     */
     public static Task toTask(TaskRequest request) {
-        return new Task(
-                request.taskId(),
-                request.taskType(),
-                request.remark(),
-                request.payload().toString(),
-                com.jrl.ai.agent.core.task.TaskStatus.PENDING,
-                java.time.Instant.ofEpochMilli(request.timestamp()),
-                null,
-                null,
-                Map.of(
-                        "priority", request.priority(),
-                        "modelId", nullSafe(request.modelId()),
-                        "promptTemplate", nullSafe(request.promptTemplate()),
-                        "timeoutMs", request.timeoutMs(),
-                        "retryCount", request.retryCount()
-                )
-        );
+        return Task.fromRequest(request);
     }
 
+    /**
+     * 从请求中提取 AgentContext
+     */
     public static AgentContext toContext(TaskRequest request) {
         var builder = AgentContext.builder()
                 .sessionId(request.sessionId())
@@ -51,9 +39,5 @@ public final class TaskContractConverter {
         }
 
         return builder.build();
-    }
-
-    private static String nullSafe(String value) {
-        return value != null ? value : "";
     }
 }
