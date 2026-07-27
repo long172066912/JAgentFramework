@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.util.Map;
 import java.util.UUID;
@@ -47,7 +48,7 @@ public class AgentController {
                     "sessionId", sessionId,
                     "durationMs", result.durationMs()
             );
-        });
+        }).subscribeOn(Schedulers.boundedElastic());
     }
 
     /**
@@ -87,7 +88,8 @@ public class AgentController {
      */
     @GetMapping("/list")
     public Mono<Map<String, String>> list() {
-        return Mono.fromCallable(agentService::listAgents);
+        return Mono.fromCallable(agentService::listAgents)
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     /**
