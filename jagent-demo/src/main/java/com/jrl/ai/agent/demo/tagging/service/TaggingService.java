@@ -4,7 +4,9 @@ import com.jrl.ai.agent.agentscope.config.AgentFactory;
 import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.io.ChatMessage;
+import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.core.task.TaskResult;
+import com.jrl.ai.agent.core.task.contract.TokenUsage;
 import com.jrl.ai.agent.demo.tagging.client.VectorStorageClient;
 import com.jrl.ai.agent.demo.tagging.model.*;
 import org.slf4j.Logger;
@@ -60,18 +62,37 @@ public class TaggingService {
      * @return 打标结果
      */
     public TaggingResult tag(String contentId, String contentType, String contentText) {
+        ExecutionTrace.Builder traceBuilder = ExecutionTrace.builder().start();
         long start = System.currentTimeMillis();
         log.info("[Tagging] start contentId={} type={}", contentId, contentType);
-
+    
         try {
             // 1. 调用 LLM 进行内容理解 + 标签抽取
-            String llmOutput = callLLMForTagging(contentText, contentType);
-            log.debug("[Tagging] LLM output: {}", llmOutput);
-
+            long stepStart = System.currentTimeMillis();
+            LLMCallResult llmResult = callLLMForTagging(contentText, contentType);
+            long llmDuration = System.currentTimeMillis() - stepStart;
+    
+            // 合并 Agent 层 trace（AgentScope 适配器自动填充的）
+            if (llmResult.taskResult().trace() != null) {
+                for (ExecutionTrace.Step s : llmResult.taskResult().trace().steps()) {
+                    traceBuilder.step(s.name(), s.duration(), s.detail());
+                }
+            } else {
+                traceBuilder.step("LLM_CALL", llmDuration,
+                        "model=%s, tags=%d".formatted(
+                                llmResult.tokenUsage() != null ? llmResult.tokenUsage().modelId() : "unknown",
+                                countTags(llmResult.output())));
+            }
+            log.debug("[Tagging] LLM output: {}", llmResult.output());
+    
             // 2. 解析 LLM 输出，提取标签
-            List<TagInfo> tags = parseTags(llmOutput, contentId);
-
+            stepStart = System.currentTimeMillis();
+            List<TagInfo> tags = parseTags(llmResult.output(), contentId);
+            traceBuilder.step("PARSE_TAGS", System.currentTimeMillis() - stepStart,
+                    "parsed=%d tags".formatted(tags.size()));
+    
             // 3. 为每个标签生成向量（简化：基于标签名生成伪向量，生产环境调用 Embedding API）
+            stepStart = System.currentTimeMillis();
             for (int i = 0; i < tags.size(); i++) {
                 TagInfo tag = tags.get(i);
                 List<Float> vector = generateEmbedding(tag.tagName());
@@ -82,19 +103,29 @@ public class TaggingService {
                 );
                 tags.set(i, withVector);
             }
-
+            traceBuilder.step("EMBEDDING", System.currentTimeMillis() - stepStart,
+                    "generated %d vectors (dim=%d)".formatted(tags.size(), VECTOR_DIM));
+    
             // 4. 写入 Milvus
+            stepStart = System.currentTimeMillis();
             int upserted = vectorClient.batchUpsert(TAG_COLLECTION, tags);
+            traceBuilder.step("MILVUS_UPSERT", System.currentTimeMillis() - stepStart,
+                    "upserted=%d to %s".formatted(upserted, TAG_COLLECTION));
             log.info("[Tagging] upserted {} tags for contentId={}", upserted, contentId);
-
+    
             // 5. 计算内容整体向量（标签向量加权平均）
+            stepStart = System.currentTimeMillis();
             List<Float> contentEmbedding = computeContentEmbedding(tags);
-
+            traceBuilder.step("CONTENT_EMBEDDING", System.currentTimeMillis() - stepStart,
+                    "weighted avg of %d tag vectors".formatted(tags.size()));
+    
             long processTime = System.currentTimeMillis() - start;
+            ExecutionTrace trace = traceBuilder.build();
             log.info("[Tagging] done contentId={}, tags={}, time={}ms", contentId, tags.size(), processTime);
-
-            return new TaggingResult(contentId, contentType, tags, contentEmbedding, processTime);
-
+    
+            return new TaggingResult(contentId, contentType, tags, contentEmbedding,
+                    llmResult.tokenUsage(), trace, processTime);
+    
         } catch (Exception e) {
             log.error("[Tagging] failed contentId={}", contentId, e);
             throw new TaggingException("打标失败: " + e.getMessage(), e);
@@ -102,9 +133,21 @@ public class TaggingService {
     }
 
     /**
+     * 统计 LLM 输出中的标签数量。
+     */
+    private int countTags(String output) {
+        return (int) TAG_PATTERN.matcher(output).results().count();
+    }
+
+    /**
+     * LLM 调用结果（包含输出、Token 消耗和完整 TaskResult）。
+     */
+    private record LLMCallResult(String output, TokenUsage tokenUsage, TaskResult taskResult) {}
+
+    /**
      * 调用 LLM 进行内容理解和标签抽取。
      */
-    private String callLLMForTagging(String contentText, String contentType) {
+    private LLMCallResult callLLMForTagging(String contentText, String contentType) {
         Agent agent = agentFactory.getAgent("tagger");
 
         String prompt = buildTaggingPrompt(contentText, contentType);
@@ -120,7 +163,8 @@ public class TaggingService {
             throw new TaggingException("LLM 调用失败: " + errorMsg, result.error());
         }
 
-        return (String) result.result().getOrDefault("response", "");
+        String output = (String) result.result().getOrDefault("response", "");
+        return new LLMCallResult(output, result.usage(), result);
     }
 
     /**

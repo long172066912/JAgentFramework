@@ -3,6 +3,7 @@ package com.jrl.ai.agent.agentscope.adapter;
 import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.io.ChatMessage;
+import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.core.task.TaskResult;
 import com.jrl.ai.agent.core.task.contract.TokenUsage;
 import io.agentscope.core.agent.RuntimeContext;
@@ -61,6 +62,9 @@ public class AgentScopeAgentAdapter implements Agent {
         Msg asMsg = MessageConverter.toAgentScope(input);
         RuntimeContext asCtx = ContextConverter.toAgentScope(context);
 
+        // 记录执行链路
+        ExecutionTrace.Builder traceBuilder = ExecutionTrace.builder().start();
+
         // 调用 AgentScope Agent
         long start = System.currentTimeMillis();
         Mono<Msg> mono = delegate.call(asMsg, asCtx);
@@ -68,8 +72,10 @@ public class AgentScopeAgentAdapter implements Agent {
         long duration = System.currentTimeMillis() - start;
 
         if (response == null) {
+            traceBuilder.step("AGENT_CALL", duration, "agent=%s, status=NO_RESPONSE".formatted(id()));
             return TaskResult.failure(id(), context.sessionId(),
-                    "NO_RESPONSE", "Agent 未返回响应", duration);
+                    "NO_RESPONSE", "Agent 未返回响应", duration)
+                    .withTrace(traceBuilder.build());
         }
 
         // 提取 Token 使用信息
@@ -79,6 +85,14 @@ public class AgentScopeAgentAdapter implements Agent {
                     delegate.getModel() != null ? delegate.getModel().getModelName() : "unknown")
                 : TokenUsage.of(0, 0, "unknown");
 
+        // 记录 Agent 调用步骤
+        traceBuilder.step("AGENT_CALL", duration,
+                "agent=%s, model=%s, promptTokens=%d, completionTokens=%d".formatted(
+                        id(),
+                        tokenUsage.modelId(),
+                        tokenUsage.promptTokens(),
+                        tokenUsage.completionTokens()));
+
         // 构造 jagent TaskResult
         return TaskResult.success(
                 id(), context.sessionId(), "text",
@@ -86,7 +100,7 @@ public class AgentScopeAgentAdapter implements Agent {
                        "model", delegate.getModel() != null ? delegate.getModel().getModelName() : "unknown"),
                 tokenUsage,
                 duration
-        );
+        ).withTrace(traceBuilder.build());
     }
 
     @Override

@@ -1,5 +1,6 @@
 package com.jrl.ai.agent.demo.tagging.controller;
 
+import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.demo.tagging.client.MockVectorStorageClient;
 import com.jrl.ai.agent.demo.tagging.model.*;
 import com.jrl.ai.agent.demo.tagging.mq.CallbackProducer;
@@ -70,6 +71,22 @@ public class TaggingController {
                                     "keywords", t.keywords() != null ? t.keywords() : List.of()
                             ))
                             .toList(),
+                    "tokenUsage", result.usage() != null ? Map.of(
+                            "model", result.usage().modelId(),
+                            "promptTokens", result.usage().promptTokens(),
+                            "completionTokens", result.usage().completionTokens(),
+                            "totalTokens", result.usage().totalTokens()
+                    ) : Map.of(),
+                    "trace", Map.of(
+                            "steps", result.trace().steps().stream()
+                                    .map(s -> Map.<String, Object>of(
+                                            "name", s.name(),
+                                            "duration", s.duration(),
+                                            "detail", s.detail() != null ? s.detail() : ""
+                                    ))
+                                    .toList(),
+                            "totalTime", result.trace().totalTime()
+                    ),
                     "processTime", result.processTime()
             );
         }).subscribeOn(Schedulers.boundedElastic());

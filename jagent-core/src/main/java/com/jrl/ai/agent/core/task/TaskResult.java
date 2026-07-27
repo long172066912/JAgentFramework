@@ -26,6 +26,8 @@ public record TaskResult(
         Map<String, Object> result,
         /** Token 消耗统计 */
         TokenUsage usage,
+        /** 执行链路追踪 */
+        ExecutionTrace trace,
         /** 异常信息（失败时非空） */
         Throwable error,
         /** 执行耗时（毫秒） */
@@ -47,7 +49,7 @@ public record TaskResult(
                                      String resultType, Map<String, Object> result,
                                      TokenUsage usage, long durationMs) {
         return new TaskResult(taskId, sessionId, TaskStatus.COMPLETED,
-                resultType, result, usage, null, durationMs);
+                resultType, result, usage, null, null, durationMs);
     }
 
     /**
@@ -63,13 +65,23 @@ public record TaskResult(
     public static TaskResult failure(String taskId, String sessionId,
                                      String errorCode, String errorMessage, long durationMs) {
         return new TaskResult(taskId, sessionId, TaskStatus.FAILED,
-                null, Map.of(), null,
+                null, Map.of(), null, null,
                 new RuntimeException(errorCode + ": " + errorMessage), durationMs);
     }
 
     /** 判断任务是否成功完成。 */
     public boolean isSuccess() {
         return status == TaskStatus.COMPLETED;
+    }
+
+    /**
+     * 设置执行链路追踪，返回新的 TaskResult。
+     *
+     * @param trace 执行链路追踪
+     * @return 携带 trace 的新 TaskResult
+     */
+    public TaskResult withTrace(ExecutionTrace trace) {
+        return new TaskResult(taskId, sessionId, status, resultType, result, usage, trace, error, durationMs);
     }
 
     /**

@@ -1,5 +1,8 @@
 package com.jrl.ai.agent.demo.tagging.model;
 
+import com.jrl.ai.agent.core.task.ExecutionTrace;
+import com.jrl.ai.agent.core.task.contract.TokenUsage;
+
 import java.util.List;
 
 /**
@@ -9,6 +12,8 @@ import java.util.List;
  * @param contentType 内容类型（product / task / post）
  * @param tags        抽取的标签列表
  * @param embedding   内容语义向量（所有标签向量的加权平均）
+ * @param usage       LLM Token 消耗统计
+ * @param trace       执行链路追踪
  * @param processTime 处理耗时（ms）
  */
 public record TaggingResult(
@@ -16,5 +21,7 @@ public record TaggingResult(
         String contentType,
         List<TagInfo> tags,
         List<Float> embedding,
+        TokenUsage usage,
+        ExecutionTrace trace,
         long processTime
 ) {}
