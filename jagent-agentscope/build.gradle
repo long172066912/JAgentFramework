@@ -9,6 +9,9 @@ dependencies {
     // DashScope 模型扩展（编译期引用，运行时由使用方提供）
     compileOnly 'io.agentscope:agentscope-extensions-model-dashscope:2.0.0'
 
+    // Micrometer 监控（编译期引用，运行时由使用方提供）
+    compileOnly 'io.micrometer:micrometer-core:1.14.4'
+
     // Spring Boot（适配层可选依赖，编译期引用）
     compileOnly 'org.springframework.boot:spring-boot-autoconfigure:3.4.7'
     compileOnly 'org.springframework.boot:spring-boot:3.4.7'

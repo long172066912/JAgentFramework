@@ -3,6 +3,7 @@ package com.jrl.ai.agent.agentscope.config;
 import com.jrl.ai.agent.agentscope.adapter.AgentScopeAgentAdapter;
 import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.agent.AgentInterceptor;
+import com.jrl.ai.agent.core.agent.AgentRegistry;
 import io.agentscope.core.model.Model;
 import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
 import io.agentscope.harness.agent.HarnessAgent;
@@ -17,12 +18,12 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Agent 工厂 — 按配置声明懒创建 HarnessAgent 实例。
+ * Agent 工厂 — 按配置声明懒创建 HarnessAgent 实例，同时作为 Agent 注册表。
  *
  * <p>使用 ConcurrentHashMap 缓存已创建的 Agent，保证同一标识只创建一次。
- * 同时维护 jagent Agent 适配器的注册表，支持通过标识查找。
+ * 实现 {@link AgentRegistry} 接口，支持通过标识查找、手动注册和注销。
  */
-public class AgentFactory {
+public class AgentFactory implements AgentRegistry {
 
     private static final Logger log = LoggerFactory.getLogger(AgentFactory.class);
 
@@ -62,6 +63,27 @@ public class AgentFactory {
             HarnessAgent harness = getHarnessAgent(key);
             return new AgentScopeAgentAdapter(harness, interceptors);
         });
+    }
+
+    @Override
+    public void register(Agent agent) {
+        agentCache.put(agent.id(), agent);
+    }
+
+    @Override
+    public Optional<Agent> get(String agentId) {
+        return Optional.ofNullable(agentCache.get(agentId));
+    }
+
+    @Override
+    public void unregister(String agentId) {
+        agentCache.remove(agentId);
+        harnessCache.remove(agentId);
+    }
+
+    @Override
+    public Collection<Agent> all() {
+        return allAgents();
     }
 
     /**
