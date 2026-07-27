@@ -40,12 +40,23 @@ public record TaskRequest(
         long timestamp
 ) {
 
+    /** 紧急优先级 */
     public static final int PRIORITY_URGENT = 1;
+    /** 普通优先级（默认） */
     public static final int PRIORITY_NORMAL = 2;
+    /** 低优先级 */
     public static final int PRIORITY_LOW = 3;
 
+    /**
+     * 创建新的 Builder。
+     *
+     * @return 新的 TaskRequest 构建器
+     */
     public static Builder builder() { return new Builder(); }
 
+    /**
+     * TaskRequest 构建器 — 支持流式 API。
+     */
     public static class Builder {
         private String taskId;
         private String taskType;

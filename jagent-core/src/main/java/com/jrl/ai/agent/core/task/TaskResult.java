@@ -85,7 +85,9 @@ public record TaskResult(
     }
 
     /**
-     * 转换为传输无关的输出契约
+     * 转换为传输无关的输出契约。
+     *
+     * @return 成功时携带完整结果，失败时携带错误码和错误信息
      */
     public TaskResponse toResponse() {
         if (isSuccess()) {

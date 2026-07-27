@@ -12,7 +12,7 @@ import com.jrl.ai.agent.core.task.Task;
  * （如基于任务类型、Agent 能力、负载均衡等）。
  *
  * @see Agent
- * @see AgentRegistry
+ * @see Task
  */
 public interface Router {
 

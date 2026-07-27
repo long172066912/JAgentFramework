@@ -35,11 +35,32 @@ public record TaskResponse(
         long timestamp
 ) {
 
+    /**
+     * 创建处理中响应（中间状态，可多次发送）。
+     *
+     * @param taskId    任务 ID
+     * @param sessionId 会话 ID
+     * @param taskType  任务类型
+     * @param progress  进度百分比（0-100）
+     * @return 处理中的 TaskResponse
+     */
     public static TaskResponse processing(String taskId, String sessionId, String taskType, int progress) {
         return new TaskResponse(taskId, sessionId, taskType, ResponseStatus.PROCESSING,
                 progress, null, Map.of(), null, null, null, 0, System.currentTimeMillis());
     }
 
+    /**
+     * 创建成功响应。
+     *
+     * @param taskId     任务 ID
+     * @param sessionId  会话 ID
+     * @param taskType   任务类型
+     * @param resultType 结果类型
+     * @param result     结构化结果
+     * @param usage      Token 消耗统计
+     * @param processTime 处理耗时（ms）
+     * @return 成功的 TaskResponse
+     */
     public static TaskResponse success(String taskId, String sessionId, String taskType,
                                        String resultType, Map<String, Object> result,
                                        TokenUsage usage, long processTime) {
@@ -47,12 +68,32 @@ public record TaskResponse(
                 100, resultType, result, usage, null, null, processTime, System.currentTimeMillis());
     }
 
+    /**
+     * 创建失败响应。
+     *
+     * @param taskId       任务 ID
+     * @param sessionId    会话 ID
+     * @param taskType     任务类型
+     * @param errorCode    错误码
+     * @param errorMessage 错误信息
+     * @param processTime  处理耗时（ms）
+     * @return 失败的 TaskResponse
+     */
     public static TaskResponse failure(String taskId, String sessionId, String taskType,
                                        String errorCode, String errorMessage, long processTime) {
         return new TaskResponse(taskId, sessionId, taskType, ResponseStatus.FAIL,
                 0, null, Map.of(), null, errorCode, errorMessage, processTime, System.currentTimeMillis());
     }
 
+    /**
+     * 创建超时响应。
+     *
+     * @param taskId      任务 ID
+     * @param sessionId   会话 ID
+     * @param taskType    任务类型
+     * @param processTime 处理耗时（ms）
+     * @return 超时的 TaskResponse
+     */
     public static TaskResponse timeout(String taskId, String sessionId, String taskType, long processTime) {
         return new TaskResponse(taskId, sessionId, taskType, ResponseStatus.TIMEOUT,
                 0, null, Map.of(), null, AgentErrorCode.TASK_TIMEOUT, "任务执行超时", processTime, System.currentTimeMillis());

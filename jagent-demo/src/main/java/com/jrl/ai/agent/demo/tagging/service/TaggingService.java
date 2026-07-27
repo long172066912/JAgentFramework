@@ -146,6 +146,11 @@ public class TaggingService {
 
     /**
      * 调用 LLM 进行内容理解和标签抽取。
+     *
+     * @param contentText 内容文本
+     * @param contentType 内容类型
+     * @return LLM 调用结果（包含输出、Token 消耗和完整 TaskResult）
+     * @throws TaggingException LLM 调用失败时抛出
      */
     private LLMCallResult callLLMForTagging(String contentText, String contentType) {
         Agent agent = agentFactory.getAgent("tagger");
@@ -169,6 +174,10 @@ public class TaggingService {
 
     /**
      * 构建打标提示词。
+     *
+     * @param contentText 内容文本
+     * @param contentType 内容类型
+     * @return 完整的打标提示词
      */
     private String buildTaggingPrompt(String contentText, String contentType) {
         return """
@@ -196,6 +205,10 @@ public class TaggingService {
 
     /**
      * 解析 LLM 输出中的标签。
+     *
+     * @param llmOutput LLM 原始输出文本
+     * @param contentId 内容 ID（用于生成标签 ID 前缀）
+     * @return 解析出的标签列表（可能为空）
      */
     private List<TagInfo> parseTags(String llmOutput, String contentId) {
         List<TagInfo> tags = new ArrayList<>();
@@ -227,6 +240,9 @@ public class TaggingService {
 
     /**
      * 根据类目推断标签层级。
+     *
+     * @param category 标签类目
+     * @return 标签层级（1/2/3）
      */
     private int inferLevel(String category) {
         return switch (category) {
@@ -278,6 +294,9 @@ public class TaggingService {
 
     /**
      * 查询已存在的标签。
+     *
+     * @param ids 标签 ID 列表
+     * @return ID → 标签信息映射
      */
     public Map<String, TagInfo> getTagsByIds(List<String> ids) {
         return vectorClient.batchGet(TAG_COLLECTION, ids);
@@ -285,13 +304,18 @@ public class TaggingService {
 
     /**
      * 相似标签检索。
+     *
+     * @param vector   查询向量
+     * @param topK     返回数量上限
+     * @param minScore 最小相似度阈值
+     * @return 检索结果列表，按相似度降序
      */
     public List<SearchResult> searchSimilarTags(List<Float> vector, int topK, double minScore) {
         return vectorClient.searchSimilar(TAG_COLLECTION, vector, topK, "status == 1", minScore);
     }
 
     /**
-     * 打标异常。
+     * 打标异常 — 打标流程中任意环节失败时抛出。
      */
     public static class TaggingException extends RuntimeException {
         public TaggingException(String message, Throwable cause) {

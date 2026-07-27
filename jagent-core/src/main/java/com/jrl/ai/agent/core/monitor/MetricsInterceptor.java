@@ -35,6 +35,11 @@ public class MetricsInterceptor implements AgentInterceptor, SkillInterceptor, M
 
     private final MeterRegistry registry;
 
+    /**
+     * 创建 Micrometer 监控拦截器。
+     *
+     * @param registry Micrometer 指标注册表
+     */
     public MetricsInterceptor(MeterRegistry registry) {
         this.registry = registry;
     }

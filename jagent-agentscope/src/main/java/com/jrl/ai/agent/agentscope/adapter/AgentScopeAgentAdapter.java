@@ -105,6 +105,12 @@ public class AgentScopeAgentAdapter implements Agent {
 
     /**
      * 递归执行环绕拦截器链。
+     *
+     * @param input   用户输入消息
+     * @param context 运行时上下文
+     * @param chain   底层执行链
+     * @param index   当前拦截器索引
+     * @return 任务执行结果
      */
     private TaskResult executeWithAround(ChatMessage input, AgentContext context,
                                          AgentInterceptor.ExecutionChain chain, int index) {
@@ -117,6 +123,10 @@ public class AgentScopeAgentAdapter implements Agent {
 
     /**
      * 构建底层执行链（实际调用 AgentScope）。
+     *
+     * @param asMsg AgentScope 消息
+     * @param asCtx AgentScope 运行时上下文
+     * @return 执行链，调用时执行 AgentScope 实际推理
      */
     private AgentInterceptor.ExecutionChain buildChain(Msg asMsg, RuntimeContext asCtx) {
         return (input, context) -> {

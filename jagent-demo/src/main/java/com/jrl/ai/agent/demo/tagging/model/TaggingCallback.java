@@ -24,7 +24,9 @@ public record TaggingCallback(
         long processTime,
         long timestamp
 ) {
+    /** 成功状态标识 */
     public static final String STATUS_SUCCESS = "success";
+    /** 失败状态标识 */
     public static final String STATUS_FAIL = "fail";
 
     /**

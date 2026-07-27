@@ -10,8 +10,10 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.UUID;
 
 /**
@@ -211,11 +213,14 @@ public class TaggingController {
     }
 
     /**
-     * 简化：基于文本生成查询向量。
+     * 基于文本生成查询向量（简化实现，生产环境应调用 Embedding API）。
+     *
+     * @param text 查询文本
+     * @return 归一化后的 768 维向量
      */
     private List<Float> generateQueryVector(String text) {
-        java.util.Random rng = new java.util.Random(text.hashCode());
-        List<Float> vector = new java.util.ArrayList<>(768);
+        Random rng = new Random(text.hashCode());
+        List<Float> vector = new ArrayList<>(768);
         for (int i = 0; i < 768; i++) {
             vector.add((float) rng.nextGaussian() * 0.1f);
         }
@@ -228,11 +233,39 @@ public class TaggingController {
 
     // ========== Request Records ==========
 
-    public record TagRequest(String contentId, String contentType, String contentText) {}
+    /** 打标请求体。 */
+    public record TagRequest(
+            /** 内容 ID */
+            String contentId,
+            /** 内容类型（product / task / post） */
+            String contentType,
+            /** 内容文本描述 */
+            String contentText
+    ) {}
 
-    public record SubmitRequest(String payloadType, Map<String, Object> payload, String remark) {}
+    /** MQ 异步交任务请求体。 */
+    public record SubmitRequest(
+            /** 数据类型（product / task / post） */
+            String payloadType,
+            /** 具体内容数据 */
+            Map<String, Object> payload,
+            /** 备注说明 */
+            String remark
+    ) {}
 
-    public record QueryRequest(List<String> ids) {}
+    /** 标签查询请求体。 */
+    public record QueryRequest(
+            /** 要查询的标签 ID 列表 */
+            List<String> ids
+    ) {}
 
-    public record SearchRequest(String text, int topK, double minScore) {}
+    /** 相似检索请求体。 */
+    public record SearchRequest(
+            /** 查询文本 */
+            String text,
+            /** 返回数量上限 */
+            int topK,
+            /** 最小相似度阈值 */
+            double minScore
+    ) {}
 }

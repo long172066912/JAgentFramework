@@ -31,10 +31,21 @@ public class AgentFactory {
     private final ConcurrentHashMap<String, Agent> agentCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, HarnessAgent> harnessCache = new ConcurrentHashMap<>();
 
+    /**
+     * 创建无拦截器的 Agent 工厂。
+     *
+     * @param properties JAgent 配置属性
+     */
     public AgentFactory(JAgentProperties properties) {
         this(properties, List.of());
     }
 
+    /**
+     * 创建带拦截器的 Agent 工厂。
+     *
+     * @param properties   JAgent 配置属性
+     * @param interceptors Agent 拦截器列表（会被复制为不可变副本）
+     */
     public AgentFactory(JAgentProperties properties, List<AgentInterceptor> interceptors) {
         this.properties = properties;
         this.interceptors = interceptors != null ? List.copyOf(interceptors) : List.of();

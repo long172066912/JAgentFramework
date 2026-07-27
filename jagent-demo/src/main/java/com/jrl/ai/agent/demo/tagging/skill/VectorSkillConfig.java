@@ -16,6 +16,19 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class VectorSkillConfig {
 
+    /**
+     * 注册向量存储相关的 Skill 到 SkillRegistry。
+     *
+     * <p>注册后 Agent 可通过 ReAct 推理循环动态调用以下 Skill：
+     * <ul>
+     *   <li>{@link VectorUpsertSkill} — 批量写入向量</li>
+     *   <li>{@link VectorSearchSkill} — 相似向量检索</li>
+     *   <li>{@link VectorGetSkill} — 批量查询向量</li>
+     * </ul>
+     *
+     * @param vectorClient 向量存储客户端
+     * @return 已注册所有向量 Skill 的 SkillRegistry
+     */
     @Bean
     public SkillRegistry vectorSkillRegistry(VectorStorageClient vectorClient) {
         SkillRegistry registry = new DefaultSkillRegistry();
