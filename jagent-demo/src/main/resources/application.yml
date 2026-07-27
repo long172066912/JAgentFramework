@@ -30,3 +30,12 @@ logging:
   level:
     com.jrl.ai.agent: INFO
     io.agentscope: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  metrics:
+    tags:
+      application: jagent-demo

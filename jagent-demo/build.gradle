@@ -20,6 +20,10 @@ dependencies {
     // Spring Boot WebFlux（响应式 + SSE 流式输出）
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
 
+    // Spring Boot Actuator + Micrometer（监控指标暴露）
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'io.micrometer:micrometer-core'
+
     // AgentScope 模型提供商（DashScope / 通义千问系列）
     implementation 'io.agentscope:agentscope-extensions-model-dashscope:2.0.0'
 

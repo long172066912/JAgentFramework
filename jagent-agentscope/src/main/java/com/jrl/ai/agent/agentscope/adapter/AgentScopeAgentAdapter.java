@@ -1,6 +1,7 @@
 package com.jrl.ai.agent.agentscope.adapter;
 
 import com.jrl.ai.agent.core.agent.Agent;
+import com.jrl.ai.agent.core.agent.AgentInterceptor;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.io.ChatMessage;
 import com.jrl.ai.agent.core.task.ExecutionTrace;
@@ -12,6 +13,7 @@ import io.agentscope.core.model.ChatUsage;
 import io.agentscope.harness.agent.HarnessAgent;
 import reactor.core.publisher.Mono;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -25,6 +27,7 @@ import java.util.Map;
 public class AgentScopeAgentAdapter implements Agent {
 
     private final HarnessAgent delegate;
+    private final List<AgentInterceptor> interceptors;
 
     /**
      * 创建适配器，包装 AgentScope HarnessAgent。
@@ -32,7 +35,18 @@ public class AgentScopeAgentAdapter implements Agent {
      * @param delegate AgentScope HarnessAgent 实例
      */
     public AgentScopeAgentAdapter(HarnessAgent delegate) {
+        this(delegate, List.of());
+    }
+
+    /**
+     * 创建适配器，包装 AgentScope HarnessAgent，并指定拦截器链。
+     *
+     * @param delegate     AgentScope HarnessAgent 实例
+     * @param interceptors Agent 拦截器列表
+     */
+    public AgentScopeAgentAdapter(HarnessAgent delegate, List<AgentInterceptor> interceptors) {
         this.delegate = delegate;
+        this.interceptors = interceptors != null ? new ArrayList<>(interceptors) : List.of();
     }
 
     @Override
@@ -62,45 +76,82 @@ public class AgentScopeAgentAdapter implements Agent {
         Msg asMsg = MessageConverter.toAgentScope(input);
         RuntimeContext asCtx = ContextConverter.toAgentScope(context);
 
-        // 记录执行链路
-        ExecutionTrace.Builder traceBuilder = ExecutionTrace.builder().start();
+        // 构建拦截器执行链
+        AgentInterceptor.ExecutionChain chain = buildChain(asMsg, asCtx);
 
-        // 调用 AgentScope Agent
-        long start = System.currentTimeMillis();
-        Mono<Msg> mono = delegate.call(asMsg, asCtx);
-        Msg response = mono.block();
-        long duration = System.currentTimeMillis() - start;
-
-        if (response == null) {
-            traceBuilder.step("AGENT_CALL", duration, "agent=%s, status=NO_RESPONSE".formatted(id()));
-            return TaskResult.failure(id(), context.sessionId(),
-                    "NO_RESPONSE", "Agent 未返回响应", duration)
-                    .withTrace(traceBuilder.build());
+        // 前置通知
+        for (AgentInterceptor interceptor : interceptors) {
+            interceptor.beforeExecute(this, input, context);
         }
 
-        // 提取 Token 使用信息
-        ChatUsage usage = response.getChatUsage();
-        TokenUsage tokenUsage = usage != null
-                ? TokenUsage.of(usage.getInputTokens(), usage.getOutputTokens(),
-                    delegate.getModel() != null ? delegate.getModel().getModelName() : "unknown")
-                : TokenUsage.of(0, 0, "unknown");
+        try {
+            // 环绕执行（最外层拦截器先执行）
+            TaskResult result = executeWithAround(input, context, chain, 0);
 
-        // 记录 Agent 调用步骤
-        traceBuilder.step("AGENT_CALL", duration,
-                "agent=%s, model=%s, promptTokens=%d, completionTokens=%d".formatted(
-                        id(),
-                        tokenUsage.modelId(),
-                        tokenUsage.promptTokens(),
-                        tokenUsage.completionTokens()));
+            // 后置通知
+            for (AgentInterceptor interceptor : interceptors) {
+                interceptor.afterExecute(this, input, context, result);
+            }
 
-        // 构造 jagent TaskResult
-        return TaskResult.success(
-                id(), context.sessionId(), "text",
-                Map.of("response", response.getTextContent(),
-                       "model", delegate.getModel() != null ? delegate.getModel().getModelName() : "unknown"),
-                tokenUsage,
-                duration
-        ).withTrace(traceBuilder.build());
+            return result;
+        } catch (Exception e) {
+            // 异常通知
+            for (AgentInterceptor interceptor : interceptors) {
+                interceptor.onError(this, input, context, e);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * 递归执行环绕拦截器链。
+     */
+    private TaskResult executeWithAround(ChatMessage input, AgentContext context,
+                                         AgentInterceptor.ExecutionChain chain, int index) {
+        if (index >= interceptors.size()) {
+            return chain.proceed(input, context);
+        }
+        return interceptors.get(index).aroundExecute(this, input, context,
+                (i, c) -> executeWithAround(i, c, chain, index + 1));
+    }
+
+    /**
+     * 构建底层执行链（实际调用 AgentScope）。
+     */
+    private AgentInterceptor.ExecutionChain buildChain(Msg asMsg, RuntimeContext asCtx) {
+        return (input, context) -> {
+            ExecutionTrace.Builder traceBuilder = ExecutionTrace.builder().start();
+
+            long start = System.currentTimeMillis();
+            Mono<Msg> mono = delegate.call(asMsg, asCtx);
+            Msg response = mono.block();
+            long duration = System.currentTimeMillis() - start;
+
+            if (response == null) {
+                traceBuilder.step("AGENT_CALL", duration, "agent=%s, status=NO_RESPONSE".formatted(id()));
+                return TaskResult.failure(id(), context.sessionId(),
+                        "NO_RESPONSE", "Agent 未返回响应", duration)
+                        .withTrace(traceBuilder.build());
+            }
+
+            ChatUsage usage = response.getChatUsage();
+            TokenUsage tokenUsage = usage != null
+                    ? TokenUsage.of(usage.getInputTokens(), usage.getOutputTokens(),
+                        delegate.getModel() != null ? delegate.getModel().getModelName() : "unknown")
+                    : TokenUsage.of(0, 0, "unknown");
+
+            traceBuilder.step("AGENT_CALL", duration,
+                    "agent=%s, model=%s, promptTokens=%d, completionTokens=%d".formatted(
+                            id(), tokenUsage.modelId(),
+                            tokenUsage.promptTokens(), tokenUsage.completionTokens()));
+
+            return TaskResult.success(
+                    id(), context.sessionId(), "text",
+                    Map.of("response", response.getTextContent(),
+                           "model", delegate.getModel() != null ? delegate.getModel().getModelName() : "unknown"),
+                    tokenUsage, duration
+            ).withTrace(traceBuilder.build());
+        };
     }
 
     @Override

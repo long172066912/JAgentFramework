@@ -1,1 +1,6 @@
 description = 'JAgent 核心框架 - AI Agent 基础抽象与扩展点'
+
+dependencies {
+    // Micrometer 监控（编译期引用，运行时由使用方提供）
+    compileOnly 'io.micrometer:micrometer-core:1.14.4'
+}

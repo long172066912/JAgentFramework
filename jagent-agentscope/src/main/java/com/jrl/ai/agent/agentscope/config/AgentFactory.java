@@ -2,6 +2,7 @@ package com.jrl.ai.agent.agentscope.config;
 
 import com.jrl.ai.agent.agentscope.adapter.AgentScopeAgentAdapter;
 import com.jrl.ai.agent.core.agent.Agent;
+import com.jrl.ai.agent.core.agent.AgentInterceptor;
 import io.agentscope.core.model.Model;
 import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
 import io.agentscope.harness.agent.HarnessAgent;
@@ -26,11 +27,17 @@ public class AgentFactory {
     private static final Logger log = LoggerFactory.getLogger(AgentFactory.class);
 
     private final JAgentProperties properties;
+    private final List<AgentInterceptor> interceptors;
     private final ConcurrentHashMap<String, Agent> agentCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, HarnessAgent> harnessCache = new ConcurrentHashMap<>();
 
     public AgentFactory(JAgentProperties properties) {
+        this(properties, List.of());
+    }
+
+    public AgentFactory(JAgentProperties properties, List<AgentInterceptor> interceptors) {
         this.properties = properties;
+        this.interceptors = interceptors != null ? List.copyOf(interceptors) : List.of();
     }
 
     /**
@@ -42,7 +49,7 @@ public class AgentFactory {
     public Agent getAgent(String agentKey) {
         return agentCache.computeIfAbsent(agentKey, key -> {
             HarnessAgent harness = getHarnessAgent(key);
-            return new AgentScopeAgentAdapter(harness);
+            return new AgentScopeAgentAdapter(harness, interceptors);
         });
     }
 
