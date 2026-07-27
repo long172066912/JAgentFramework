@@ -28,7 +28,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * JAgent Spring Boot 自动装配。
@@ -172,7 +174,14 @@ public class JAgentAutoConfiguration {
      */
     @Bean
     public SkillScoringInterceptor skillScoringInterceptor(JAgentProperties properties) {
-        return new SkillScoringInterceptor(properties.getSkillScoring().getPriorities());
+        // 从每个 Agent 的配置中提取 Skill 优先级
+        Map<String, Map<String, Double>> priorities = new HashMap<>();
+        properties.getAgents().forEach((agentId, config) -> {
+            if (!config.getSkillPriorities().isEmpty()) {
+                priorities.put(agentId, config.getSkillPriorities());
+            }
+        });
+        return new SkillScoringInterceptor(priorities);
     }
 
     /**

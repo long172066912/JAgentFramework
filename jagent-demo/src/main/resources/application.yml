@@ -25,6 +25,10 @@ jagent:
       model: "dashscope:qwen3.7-flash"
       max-iters: 10
       max-retries: 3
+      skill-priorities:
+        vector_search: 0.9
+        vector_upsert: 0.7
+        vector_get: 0.5
 
 logging:
   level:
