@@ -1,5 +1,16 @@
-description = 'JAgent AgentScope 扩展 - 适配 AgentScope 框架'
+description = 'JAgent AgentScope 扩展 - 适配 AgentScope 2.0 框架 + Spring Boot 集成'
 
 dependencies {
     api project(':jagent-core')
+
+    // AgentScope 2.0 核心 + Harness
+    api 'io.agentscope:agentscope-harness:2.0.0'
+
+    // Spring Boot（适配层可选依赖，编译期引用）
+    compileOnly 'org.springframework.boot:spring-boot-autoconfigure:3.4.7'
+    compileOnly 'org.springframework.boot:spring-boot:3.4.7'
+    compileOnly 'org.springframework:spring-context:6.2.8'
+    compileOnly 'org.springframework:spring-beans:6.2.8'
+    compileOnly 'org.springframework:spring-webflux:6.2.8'
+    compileOnly 'io.projectreactor:reactor-core:3.7.7'
 }

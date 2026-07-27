@@ -1,0 +1,23 @@
+server:
+  port: 8080
+
+jagent:
+  workspace: "./workspace"
+  agents:
+    translator:
+      name: "翻译助手"
+      sys-prompt: "你是一个专业的中英互译助手。如果用户输入英文，翻译为中文；如果输入中文，翻译为英文。回答简洁准确。"
+      model: "dashscope:qwen-plus"
+      max-iters: 10
+      max-retries: 3
+    summarizer:
+      name: "摘要助手"
+      sys-prompt: "你是一个文本摘要助手。请用简洁的语言概括用户输入的核心要点，不超过 100 字。"
+      model: "dashscope:qwen-plus"
+      max-iters: 10
+      max-retries: 3
+
+logging:
+  level:
+    com.jrl.ai.agent: INFO
+    io.agentscope: INFO

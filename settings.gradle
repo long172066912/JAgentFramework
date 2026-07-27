@@ -2,3 +2,4 @@ rootProject.name = 'JAgentFramework'
 
 include 'jagent-core'
 include 'jagent-agentscope'
+include 'jagent-demo'
