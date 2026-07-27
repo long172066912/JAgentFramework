@@ -19,6 +19,12 @@ jagent:
       model: "dashscope:qwen3.7-flash"
       max-iters: 10
       max-retries: 3
+    tagger:
+      name: "智能打标助手"
+      sys-prompt: "你是一个专业的内容标签抽取引擎。你的任务是分析输入内容，抽取最能代表其语义的标签。\n\n规则：\n1. 抽取 3-8 个最能代表内容语义的标签\n2. 每个标签包含：name(名称)、category(类目)、confidence(置信度0-1)、desc(一句话介绍)、keywords(3-5个关键词用/分隔)\n3. 标签类目包括：视觉风格、情感氛围、场景用途、材质工艺、颜色配色、主题元素\n4. 严格按以下格式输出，每行一个标签：\n[TAG] name=标签名称, category=类目, confidence=置信度, desc=标签介绍, keywords=关键词1/关键词2/关键词3\n5. 不要输出任何额外内容，只输出标签列表"
+      model: "dashscope:qwen3.7-flash"
+      max-iters: 10
+      max-retries: 3
 
 logging:
   level:
