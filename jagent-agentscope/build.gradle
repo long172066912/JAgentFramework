@@ -6,6 +6,9 @@ dependencies {
     // AgentScope 2.0 核心 + Harness
     api 'io.agentscope:agentscope-harness:2.0.0'
 
+    // DashScope 模型扩展（编译期引用，运行时由使用方提供）
+    compileOnly 'io.agentscope:agentscope-extensions-model-dashscope:2.0.0'
+
     // Spring Boot（适配层可选依赖，编译期引用）
     compileOnly 'org.springframework.boot:spring-boot-autoconfigure:3.4.7'
     compileOnly 'org.springframework.boot:spring-boot:3.4.7'

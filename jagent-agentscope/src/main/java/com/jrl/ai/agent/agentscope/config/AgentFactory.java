@@ -2,6 +2,8 @@ package com.jrl.ai.agent.agentscope.config;
 
 import com.jrl.ai.agent.agentscope.adapter.AgentScopeAgentAdapter;
 import com.jrl.ai.agent.core.agent.Agent;
+import io.agentscope.core.model.Model;
+import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
 import io.agentscope.harness.agent.HarnessAgent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -56,16 +59,62 @@ public class AgentFactory {
                 throw new IllegalArgumentException("未找到 Agent 配置: " + key);
             }
             log.info("创建 Agent [{}] model={} workspace={}", key, config.getModel(), properties.getWorkspace());
-            return HarnessAgent.builder()
+
+            HarnessAgent.Builder builder = HarnessAgent.builder()
                     .agentId(key)
                     .name(config.getName() != null ? config.getName() : key)
                     .sysPrompt(config.getSysPrompt())
-                    .model(config.getModel())
                     .workspace(Path.of(properties.getWorkspace()))
                     .maxIters(config.getMaxIters())
-                    .maxRetries(config.getMaxRetries())
-                    .build();
+                    .maxRetries(config.getMaxRetries());
+
+            // 如果 YAML 中配置了 API Key，直接构建 Model 对象（避免依赖环境变量）
+            Model model = buildModel(config.getModel());
+            if (model != null) {
+                builder.model(model);
+            } else {
+                // 回退到字符串引用，由 AgentScope SPI 自动解析（需要环境变量）
+                builder.model(config.getModel());
+            }
+
+            return builder.build();
         });
+    }
+
+    /**
+     * 根据模型引用构建 Model 对象。
+     *
+     * <p>模型引用格式为 "provider:model"（如 "dashscope:qwen-plus"）。
+     * 如果 YAML 中配置了对应 provider 的 API Key，则直接构建 Model；
+     * 否则返回 null，由 AgentScope SPI 自动解析。
+     *
+     * @param modelRef 模型引用（格式: "provider:model"）
+     * @return Model 对象，或 null（未配置 API Key 时）
+     */
+    private Model buildModel(String modelRef) {
+        int colonIdx = modelRef.indexOf(':');
+        if (colonIdx <= 0) return null;
+
+        String provider = modelRef.substring(0, colonIdx);
+        String modelName = modelRef.substring(colonIdx + 1);
+        Map<String, String> apiKeys = properties.getModel().getApiKeys();
+        String apiKey = apiKeys.get(provider);
+        if (apiKey == null || apiKey.isBlank()) {
+            return null; // 未配置 API Key，回退到环境变量方式
+        }
+
+        log.info("使用 YAML 配置的 API Key 构建模型: provider={} model={}", provider, modelName);
+        return switch (provider.toLowerCase()) {
+            case "dashscope" -> DashScopeChatModel.builder()
+                    .apiKey(apiKey)
+                    .modelName(modelName)
+                    .stream(true)
+                    .build();
+            default -> {
+                log.warn("暂不支持自动构建 {} 的 Model，回退到环境变量方式", provider);
+                yield null;
+            }
+        };
     }
 
     /**

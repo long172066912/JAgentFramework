@@ -1,5 +1,7 @@
 package com.jrl.ai.agent.agentscope.config;
 
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -9,6 +11,9 @@ import java.util.Map;
  * <p>示例配置：
  * <pre>{@code
  * jagent:
+ *   model:
+ *     api-keys:
+ *       dashscope: "sk-xxx"
  *   agents:
  *     translator:
  *       name: "翻译助手"
@@ -17,6 +22,7 @@ import java.util.Map;
  *   workspace: "./workspace"
  * }</pre>
  */
+@ConfigurationProperties(prefix = "jagent")
 public class JAgentProperties {
 
     /** Agent 声明列表，key 为 Agent 逻辑标识 */
@@ -25,11 +31,28 @@ public class JAgentProperties {
     /** 全局工作空间路径 */
     private String workspace = "./workspace";
 
+    /** 模型相关配置（API Key 等） */
+    private ModelConfig model = new ModelConfig();
+
     public Map<String, AgentConfig> getAgents() { return agents; }
     public void setAgents(Map<String, AgentConfig> agents) { this.agents = agents; }
 
     public String getWorkspace() { return workspace; }
     public void setWorkspace(String workspace) { this.workspace = workspace; }
+
+    public ModelConfig getModel() { return model; }
+    public void setModel(ModelConfig model) { this.model = model; }
+
+    /**
+     * 模型相关配置。
+     */
+    public static class ModelConfig {
+        /** 各 provider 的 API Key，key 为 provider 标识（如 "dashscope"） */
+        private Map<String, String> apiKeys = new LinkedHashMap<>();
+
+        public Map<String, String> getApiKeys() { return apiKeys; }
+        public void setApiKeys(Map<String, String> apiKeys) { this.apiKeys = apiKeys; }
+    }
 
     /**
      * 单个 Agent 的配置。
