@@ -4,6 +4,7 @@ import com.jrl.ai.agent.agentscope.agent.AgentLifecycleManager;
 import com.jrl.ai.agent.agentscope.model.AgentScopeModelRegistry;
 import com.jrl.ai.agent.agentscope.prompt.InMemoryPromptRegistry;
 import com.jrl.ai.agent.agentscope.router.DefaultRouter;
+import com.jrl.ai.agent.agentscope.skill.SkillScoringInterceptor;
 import com.jrl.ai.agent.agentscope.storage.JsonFileKVStore;
 import com.jrl.ai.agent.core.agent.AgentInterceptor;
 import com.jrl.ai.agent.core.agent.AgentLifecycle;
@@ -14,11 +15,13 @@ import com.jrl.ai.agent.core.plan.Planner;
 import com.jrl.ai.agent.core.prompt.PromptRegistry;
 import com.jrl.ai.agent.core.retrieval.Retriever;
 import com.jrl.ai.agent.core.router.Router;
+import com.jrl.ai.agent.core.skill.SkillScorer;
 import com.jrl.ai.agent.core.storage.KVStore;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -39,6 +42,7 @@ import java.util.List;
  *   <li>{@link JsonFileKVStore} — 作为 {@link KVStore}</li>
  *   <li>{@link DefaultRouter} — 作为 {@link Router}</li>
  *   <li>{@link AgentLifecycleManager} — 作为 {@link AgentLifecycle}</li>
+ *   <li>{@link SkillScoringInterceptor} — 作为 {@link SkillScorer}，Skill 评分拦截器</li>
  *   <li>{@link com.jrl.ai.agent.agentscope.plan.AgentScopePlanner} — 作为 {@link Planner}，可选</li>
  *   <li>{@link com.jrl.ai.agent.agentscope.retrieval.AgentScopeRetriever} — 作为 {@link Retriever}，条件化</li>
  * </ul>
@@ -155,5 +159,31 @@ public class JAgentAutoConfiguration {
     @ConditionalOnBean(io.agentscope.core.rag.Knowledge.class)
     public Retriever retriever(io.agentscope.core.rag.Knowledge knowledge) {
         return new com.jrl.ai.agent.agentscope.retrieval.AgentScopeRetriever(knowledge);
+    }
+
+    /**
+     * 注册 Skill 评分拦截器 — 同时作为 {@link SkillScorer}。
+     *
+     * <p>在 Skill 执行前后自动采集 (agentId, skillName) 维度的执行统计，
+     * 结合外部配置的静态优先级计算评分。
+     *
+     * @param properties JAgent 配置属性
+     * @return SkillScoringInterceptor 实例
+     */
+    @Bean
+    public SkillScoringInterceptor skillScoringInterceptor(JAgentProperties properties) {
+        return new SkillScoringInterceptor(properties.getSkillScoring().getPriorities());
+    }
+
+    /**
+     * 注册 Skill 评分器（默认使用 SkillScoringInterceptor 实例）。
+     *
+     * @param interceptor Skill 评分拦截器
+     * @return SkillScorer 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public SkillScorer skillScorer(SkillScoringInterceptor interceptor) {
+        return interceptor;
     }
 }

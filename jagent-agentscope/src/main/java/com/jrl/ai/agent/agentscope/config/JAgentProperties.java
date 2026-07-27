@@ -20,6 +20,11 @@ import java.util.Map;
  *       sys-prompt: "你是中英互译助手"
  *       model: "dashscope:qwen-plus"
  *   workspace: "./workspace"
+ *   skill-scoring:
+ *     priorities:
+ *       translator:
+ *         vector_search: 0.9
+ *         vector_get: 0.5
  * }</pre>
  */
 @ConfigurationProperties(prefix = "jagent")
@@ -34,6 +39,9 @@ public class JAgentProperties {
     /** 模型相关配置（API Key 等） */
     private ModelConfig model = new ModelConfig();
 
+    /** Skill 评分配置（Agent 维度的 Skill 优先级） */
+    private SkillScoringConfig skillScoring = new SkillScoringConfig();
+
     public Map<String, AgentConfig> getAgents() { return agents; }
     public void setAgents(Map<String, AgentConfig> agents) { this.agents = agents; }
 
@@ -42,6 +50,9 @@ public class JAgentProperties {
 
     public ModelConfig getModel() { return model; }
     public void setModel(ModelConfig model) { this.model = model; }
+
+    public SkillScoringConfig getSkillScoring() { return skillScoring; }
+    public void setSkillScoring(SkillScoringConfig skillScoring) { this.skillScoring = skillScoring; }
 
     /**
      * 模型相关配置。
@@ -83,5 +94,18 @@ public class JAgentProperties {
 
         public int getMaxRetries() { return maxRetries; }
         public void setMaxRetries(int maxRetries) { this.maxRetries = maxRetries; }
+    }
+
+    /**
+     * Skill 评分配置 — 按 Agent 维度设置 Skill 优先级。
+     *
+     * <p>配置格式：agentId -> (skillName -> 基础分 0.0~1.0)
+     */
+    public static class SkillScoringConfig {
+        /** 静态优先级配置：agentId -> (skillName -> 基础分) */
+        private Map<String, Map<String, Double>> priorities = new LinkedHashMap<>();
+
+        public Map<String, Map<String, Double>> getPriorities() { return priorities; }
+        public void setPriorities(Map<String, Map<String, Double>> priorities) { this.priorities = priorities; }
     }
 }

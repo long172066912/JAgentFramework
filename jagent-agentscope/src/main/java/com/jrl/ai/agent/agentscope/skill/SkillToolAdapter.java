@@ -76,6 +76,12 @@ public class SkillToolAdapter implements AgentTool {
             // 构造 SkillContext
             RuntimeContext asCtx = param.getRuntimeContext();
             var jagentCtx = ContextConverter.toJAgent(asCtx);
+
+            // 传递 agentId 供评分拦截器使用
+            if (param.getAgent() != null && param.getAgent().getAgentId() != null) {
+                jagentCtx.put("agentId", param.getAgent().getAgentId());
+            }
+
             SkillContext skillCtx = new SkillContext(
                     skill.name(), inputText, jagentCtx,
                     input != null ? input : Map.of()
