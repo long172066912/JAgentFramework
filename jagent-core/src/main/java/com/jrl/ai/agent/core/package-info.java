@@ -10,6 +10,8 @@
  *   <li>{@code context} — 运行时上下文</li>
  *   <li>{@code feedback} — 反馈机制（提示词反馈 / Skill 反馈）</li>
  *   <li>{@code io} — 消息模型（ChatMessage / MessageRole）</li>
+ *   <li>{@code model} — LLM 模型抽象与注册表（支持多模型混用）</li>
+ *   <li>{@code plan} — GOAP 风格规划（Goal / Plan / Planner）</li>
  *   <li>{@code prompt} — 提示词模板管理</li>
  *   <li>{@code retrieval} — RAG 检索抽象</li>
  *   <li>{@code router} — 任务路由</li>
