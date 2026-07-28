@@ -41,6 +41,12 @@ public class TaggingService {
     /** 标签集合名称 */
     private static final String TAG_COLLECTION = "tag_vectors";
 
+    /** 默认标签数量（未指定时使用） */
+    private static final int DEFAULT_TAG_COUNT = 5;
+
+    /** 标签数量不足时的最大重试次数 */
+    private static final int MAX_TAG_RETRIES = 3;
+
     /** 从 LLM 输出中解析标签的正则（包含 description 和 keywords） */
     private static final Pattern TAG_PATTERN =
             Pattern.compile("\\[TAG\\]\\s*name=(.+?),\\s*category=(.+?),\\s*confidence=([\\d.]+),\\s*desc=(.+?),\\s*keywords=(.+)");
@@ -54,7 +60,7 @@ public class TaggingService {
     }
 
     /**
-     * 对内容执行智能打标。
+     * 对内容执行智能打标（使用默认标签数量 5）。
      *
      * @param contentId   内容 ID
      * @param contentType 内容类型（product / task / post）
@@ -62,6 +68,19 @@ public class TaggingService {
      * @return 打标结果
      */
     public TaggingResult tag(String contentId, String contentType, String contentText) {
+        return tag(contentId, contentType, contentText, DEFAULT_TAG_COUNT);
+    }
+
+    /**
+     * 对内容执行智能打标。
+     *
+     * @param contentId        内容 ID
+     * @param contentType      内容类型（product / task / post）
+     * @param contentText      内容文本描述
+     * @param requiredTagCount 要求的标签数量
+     * @return 打标结果
+     */
+    public TaggingResult tag(String contentId, String contentType, String contentText, int requiredTagCount) {
         ExecutionTrace.Builder traceBuilder = ExecutionTrace.builder().start();
         long start = System.currentTimeMillis();
         log.info("[Tagging] start contentId={} type={}", contentId, contentType);
@@ -69,7 +88,7 @@ public class TaggingService {
         try {
             // 1. 调用 LLM 进行内容理解 + 标签抽取
             long stepStart = System.currentTimeMillis();
-            LLMCallResult llmResult = callLLMForTagging(contentText, contentType);
+            LLMCallResult llmResult = callLLMForTagging(contentText, contentType, requiredTagCount);
             long llmDuration = System.currentTimeMillis() - stepStart;
     
             // 合并 Agent 层 trace（AgentScope 适配器自动填充的）
@@ -145,41 +164,75 @@ public class TaggingService {
     private record LLMCallResult(String output, TokenUsage tokenUsage, TaskResult taskResult) {}
 
     /**
-     * 调用 LLM 进行内容理解和标签抽取。
+     * 调用 LLM 进行内容理解和标签抽取，确保输出恰好 requiredTagCount 个标签。
      *
-     * @param contentText 内容文本
-     * @param contentType 内容类型
+     * <p>如果 LLM 输出的标签数量不足，会自动重试（最多 MAX_TAG_RETRIES 次），
+     * 并在重试时将数量要求追加到提示词中。
+     *
+     * @param contentText      内容文本
+     * @param contentType      内容类型
+     * @param requiredTagCount 要求的标签数量
      * @return LLM 调用结果（包含输出、Token 消耗和完整 TaskResult）
-     * @throws TaggingException LLM 调用失败时抛出
+     * @throws TaggingException LLM 调用失败或多次重试后仍不满足数量要求时抛出
      */
-    private LLMCallResult callLLMForTagging(String contentText, String contentType) {
+    private LLMCallResult callLLMForTagging(String contentText, String contentType, int requiredTagCount) {
         Agent agent = agentFactory.getAgent("tagger");
+        String basePrompt = buildTaggingPrompt(contentText, contentType, requiredTagCount);
 
-        String prompt = buildTaggingPrompt(contentText, contentType);
-        ChatMessage input = ChatMessage.user(prompt);
-        AgentContext context = AgentContext.builder()
-                .sessionId(UUID.randomUUID().toString())
-                .userId("tagging-system")
-                .build();
+        for (int attempt = 1; attempt <= MAX_TAG_RETRIES; attempt++) {
+            // 首次使用基础提示词，重试时追加数量修正提示
+            String prompt = attempt == 1 ? basePrompt : appendRetryHint(basePrompt, requiredTagCount);
 
-        TaskResult result = agent.execute(input, context);
-        if (!result.isSuccess()) {
-            String errorMsg = result.error() != null ? result.error().getMessage() : "未知错误";
-            throw new TaggingException("LLM 调用失败: " + errorMsg, result.error());
+            ChatMessage input = ChatMessage.user(prompt);
+            AgentContext context = AgentContext.builder()
+                    .sessionId(UUID.randomUUID().toString())
+                    .userId("tagging-system")
+                    .build();
+
+            TaskResult result = agent.execute(input, context);
+            if (!result.isSuccess()) {
+                String errorMsg = result.error() != null ? result.error().getMessage() : "未知错误";
+                throw new TaggingException("LLM 调用失败: " + errorMsg, result.error());
+            }
+
+            String output = (String) result.result().getOrDefault("response", "");
+            int tagCount = countTags(output);
+
+            if (tagCount == requiredTagCount) {
+                log.info("[Tagging] LLM 输出 {} 个标签，符合要求（第 {} 次尝试）", tagCount, attempt);
+                return new LLMCallResult(output, result.usage(), result);
+            }
+
+            log.warn("[Tagging] LLM 输出 {} 个标签，要求 {} 个，第 {}/{} 次尝试",
+                    tagCount, requiredTagCount, attempt, MAX_TAG_RETRIES);
         }
 
-        String output = (String) result.result().getOrDefault("response", "");
-        return new LLMCallResult(output, result.usage(), result);
+        throw new TaggingException(
+                "LLM 多次尝试后仍无法输出恰好 %d 个标签（已重试 %d 次）".formatted(requiredTagCount, MAX_TAG_RETRIES),
+                null);
+    }
+
+    /**
+     * 追加数量修正提示到基础提示词末尾。
+     *
+     * @param basePrompt       基础提示词
+     * @param requiredTagCount 要求的标签数量
+     * @return 带修正提示的完整提示词
+     */
+    private String appendRetryHint(String basePrompt, int requiredTagCount) {
+        return basePrompt + "\n\n【重要修正】上一次输出的标签数量不正确。" +
+                "请务必输出恰好 %d 个标签，不多不少。每个标签独占一行，以 [TAG] 开头。".formatted(requiredTagCount);
     }
 
     /**
      * 构建打标提示词。
      *
-     * @param contentText 内容文本
-     * @param contentType 内容类型
+     * @param contentText      内容文本
+     * @param contentType      内容类型
+     * @param requiredTagCount 要求的标签数量
      * @return 完整的打标提示词
      */
-    private String buildTaggingPrompt(String contentText, String contentType) {
+    private String buildTaggingPrompt(String contentText, String contentType, int requiredTagCount) {
         return """
                 请分析以下%s内容，抽取语义标签。
                 
@@ -187,7 +240,7 @@ public class TaggingService {
                 %s
                 
                 要求：
-                1. 抽取 3-8 个最能代表内容语义的标签
+                1. 必须抽取恰好 %d 个最能代表内容语义的标签（不多不少）
                 2. 每个标签包含：
                    - name: 标签名称
                    - category: 类目（视觉风格/情感氛围/场景用途/材质工艺/颜色配色/主题元素）
@@ -200,7 +253,7 @@ public class TaggingService {
                 示例：
                 [TAG] name=复古胶片风, category=视觉风格, confidence=0.95, desc=模拟传统胶片相机的色彩质感和颗粒感, keywords=胶片/复古/颗粒感/怀旧/相机
                 [TAG] name=温暖治愈, category=情感氛围, confidence=0.88, desc=给人温暖舒适、心灵治愈的感觉, keywords=温暖/治愈/舒适/温馨
-                """.formatted(contentType, contentText);
+                """.formatted(contentType, contentText, requiredTagCount);
     }
 
     /**

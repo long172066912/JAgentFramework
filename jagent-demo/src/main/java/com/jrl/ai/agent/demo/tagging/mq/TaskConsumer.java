@@ -29,11 +29,11 @@ public class TaskConsumer {
     private static final Logger log = LoggerFactory.getLogger(TaskConsumer.class);
 
     private final TaggingService taggingService;
-    private final CallbackProducer callbackProducer;
+    private final CallbackDispatcher callbackDispatcher;
 
-    public TaskConsumer(TaggingService taggingService, CallbackProducer callbackProducer) {
+    public TaskConsumer(TaggingService taggingService, CallbackDispatcher callbackDispatcher) {
         this.taggingService = taggingService;
-        this.callbackProducer = callbackProducer;
+        this.callbackDispatcher = callbackDispatcher;
     }
 
     /**
@@ -51,9 +51,10 @@ public class TaskConsumer {
             String contentId = extractContentId(task);
             String contentType = task.payloadType();
             String contentText = extractContentText(task);
+            int requiredTagCount = task.requiredTagCount() > 0 ? task.requiredTagCount() : 5;
 
             // 执行打标
-            TaggingResult result = taggingService.tag(contentId, contentType, contentText);
+            TaggingResult result = taggingService.tag(contentId, contentType, contentText, requiredTagCount);
 
             // 构建成功回执
             Map<String, Object> payload = Map.of(
@@ -69,14 +70,14 @@ public class TaskConsumer {
             );
 
             TaggingCallback callback = TaggingCallback.success(task, payload, result.processTime());
-            callbackProducer.sendSuccess(callback);
+            callbackDispatcher.sendSuccess(task, callback);
 
         } catch (Exception e) {
             log.error("[MQ] 打标任务失败 taskId={}", task.taskId(), e);
 
             TaggingCallback callback = TaggingCallback.fail(task, e.getMessage(),
                     System.currentTimeMillis() - startTime);
-            callbackProducer.sendFail(callback);
+            callbackDispatcher.sendFail(task, callback);
         }
     }
 

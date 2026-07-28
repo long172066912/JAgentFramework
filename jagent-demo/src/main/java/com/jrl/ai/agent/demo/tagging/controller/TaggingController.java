@@ -53,10 +53,11 @@ public class TaggingController {
     @PostMapping("/tag")
     public Mono<Map<String, Object>> tag(@RequestBody TagRequest request) {
         return Mono.fromCallable(() -> {
-            TaggingResult result = taggingService.tag(
+                        TaggingResult result = taggingService.tag(
                     request.contentId(),
                     request.contentType(),
-                    request.contentText()
+                    request.contentText(),
+                    request.requiredTagCount() != null ? request.requiredTagCount() : 5
             );
 
             return Map.<String, Object>of(
@@ -118,6 +119,9 @@ public class TaggingController {
                     taskId,
                     request.payloadType(),
                     request.payload(),
+                    request.requiredTagCount() != null ? request.requiredTagCount() : 0,
+                    request.callbackType(),
+                    request.callbackAddress(),
                     request.remark()
             );
 
@@ -233,14 +237,16 @@ public class TaggingController {
 
     // ========== Request Records ==========
 
-    /** 打标请求体。 */
+    /** 同步打标请求体。 */
     public record TagRequest(
             /** 内容 ID */
             String contentId,
             /** 内容类型（product / task / post） */
             String contentType,
             /** 内容文本描述 */
-            String contentText
+            String contentText,
+            /** 要求的标签数量（可选，默认 5） */
+            Integer requiredTagCount
     ) {}
 
     /** MQ 异步交任务请求体。 */
@@ -249,6 +255,12 @@ public class TaggingController {
             String payloadType,
             /** 具体内容数据 */
             Map<String, Object> payload,
+            /** 要求的标签数量（可选，默认 5） */
+            Integer requiredTagCount,
+            /** 回执方式（可选，mq / http，默认 mq） */
+            String callbackType,
+            /** 回执地址（MQ 时为 topic，HTTP 时为 URL，默认 tagging_callback） */
+            String callbackAddress,
             /** 备注说明 */
             String remark
     ) {}
