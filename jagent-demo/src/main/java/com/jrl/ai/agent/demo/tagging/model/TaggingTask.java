@@ -34,11 +34,11 @@ public record TaggingTask(
     public static final String DEFAULT_CALLBACK_ADDRESS = "tagging_callback";
 
     /**
-     * 快速构建一个打标任务（使用默认标签数量和 MQ 回执）。
+     * 快速构建一个打标任务（使用默认标签数量，不回执）。
      */
     public static TaggingTask markTag(String taskId, String payloadType,
                                        Map<String, Object> payload, String remark) {
-        return markTag(taskId, payloadType, payload, 0, CallbackType.MQ, null, remark);
+        return markTag(taskId, payloadType, payload, 0, CallbackType.NONE, null, remark);
     }
 
     /**
@@ -50,11 +50,11 @@ public record TaggingTask(
                                        Map<String, Object> payload, int requiredTagCount,
                                        CallbackType callbackType, String callbackAddress, String remark) {
         // 解析回执类型和地址
-        CallbackType type = callbackType != null ? callbackType : CallbackType.MQ;
-        String address = callbackAddress != null ? callbackAddress : DEFAULT_CALLBACK_ADDRESS;
+        CallbackType type = callbackType != null ? callbackType : CallbackType.NONE;
+        String address = callbackAddress != null ? callbackAddress : "";
 
-        // 校验地址格式
-        if (!type.validateAddress(address)) {
+        // 校验地址格式（仅当需要回执时）
+        if (type != CallbackType.NONE && !type.validateAddress(address)) {
             throw new IllegalArgumentException(type.getAddressErrorMessage(address));
         }
 

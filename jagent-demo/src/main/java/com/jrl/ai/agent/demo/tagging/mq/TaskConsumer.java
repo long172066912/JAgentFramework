@@ -1,5 +1,6 @@
 package com.jrl.ai.agent.demo.tagging.mq;
 
+import com.jrl.ai.agent.demo.tagging.model.CallbackType;
 import com.jrl.ai.agent.demo.tagging.model.TaggingCallback;
 import com.jrl.ai.agent.demo.tagging.model.TaggingResult;
 import com.jrl.ai.agent.demo.tagging.model.TaggingTask;
@@ -70,14 +71,22 @@ public class TaskConsumer {
             );
 
             TaggingCallback callback = TaggingCallback.success(task, payload, result.processTime());
-            callbackDispatcher.sendSuccess(task, callback);
+            if (task.callbackType() != CallbackType.NONE) {
+                callbackDispatcher.sendSuccess(task, callback);
+            } else {
+                log.info("[MQ] 任务完成，不回执 taskId={}", task.taskId());
+            }
 
         } catch (Exception e) {
             log.error("[MQ] 打标任务失败 taskId={}", task.taskId(), e);
 
             TaggingCallback callback = TaggingCallback.fail(task, e.getMessage(),
                     System.currentTimeMillis() - startTime);
-            callbackDispatcher.sendFail(task, callback);
+            if (task.callbackType() != CallbackType.NONE) {
+                callbackDispatcher.sendFail(task, callback);
+            } else {
+                log.info("[MQ] 任务失败，不回执 taskId={}", task.taskId());
+            }
         }
     }
 

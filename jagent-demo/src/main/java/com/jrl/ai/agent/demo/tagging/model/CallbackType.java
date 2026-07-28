@@ -5,6 +5,9 @@ package com.jrl.ai.agent.demo.tagging.model;
  */
 public enum CallbackType {
 
+    /** 不回执 */
+    NONE("none"),
+
     /** MQ 消息队列回执 */
     MQ("mq"),
 
@@ -24,20 +27,19 @@ public enum CallbackType {
     /**
      * 从字符串解析为枚举（忽略大小写）。
      *
-     * @param value 字符串值（mq / http）
-     * @return 对应的枚举值
-     * @throws IllegalArgumentException 无效的回执类型
+     * @param value 字符串值（none / mq / http）
+     * @return 对应的枚举值，为空或无效时返回 NONE
      */
     public static CallbackType fromString(String value) {
         if (value == null || value.isBlank()) {
-            return MQ; // 默认 MQ
+            return NONE; // 默认不回执
         }
         for (CallbackType type : values()) {
             if (type.value.equalsIgnoreCase(value)) {
                 return type;
             }
         }
-        throw new IllegalArgumentException("无效的回执类型: " + value + "，支持: mq, http");
+        throw new IllegalArgumentException("无效的回执类型: " + value + "，支持: none, mq, http");
     }
 
     /**
@@ -51,6 +53,7 @@ public enum CallbackType {
             return false;
         }
         return switch (this) {
+            case NONE -> true; // 不回执时地址无所谓
             case MQ -> address.matches("^[a-zA-Z][a-zA-Z0-9_]*$"); // topic 格式：字母开头，字母数字下划线
             case HTTP -> address.startsWith("http://") || address.startsWith("https://");
         };
@@ -64,6 +67,7 @@ public enum CallbackType {
      */
     public String getAddressErrorMessage(String address) {
         return switch (this) {
+            case NONE -> "";
             case MQ -> "MQ topic 格式无效: '%s'，应为字母开头的字母数字下划线组合".formatted(address);
             case HTTP -> "HTTP URL 格式无效: '%s'，应以 http:// 或 https:// 开头".formatted(address);
         };
