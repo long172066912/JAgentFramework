@@ -31,9 +31,11 @@ jagent:
         vector_get: 0.5
   evaluation:
     enabled: true
-    llm-judge-enabled: false
+    llm-judge-enabled: true
     llm-judge-model: "dashscope:qwen-plus"
     latency-threshold-ms: 10000
+    optimization:
+      llm-enabled: true
     weights:
       intelligence: 0.3
       performance: 0.15

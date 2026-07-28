@@ -284,11 +284,55 @@ public class JAgentAutoConfiguration {
     }
 
     /**
+     * 注册优化报告存储（JSON 文件实现）。
+     *
+     * @param properties JAgent 配置属性
+     * @return OptimizationReportStore 实例
+     */
+    @Bean
+    @ConditionalOnProperty(name = "jagent.evaluation.enabled", havingValue = "true")
+    public OptimizationReportStore optimizationReportStore(JAgentProperties properties) {
+        return new JsonFileOptimizationReportStore(
+                Path.of(properties.getWorkspace(), "evaluation", "optimization"));
+    }
+
+    /**
+     * 注册基于规则的优化分析器（默认，LLM 分析器未启用时生效）。
+     *
+     * @return RuleBasedOptimizationAnalyzer 实例
+     */
+    @Bean
+    @ConditionalOnProperty(name = "jagent.evaluation.optimization.llm-enabled",
+            havingValue = "false", matchIfMissing = true)
+    public OptimizationAnalyzer ruleBasedOptimizationAnalyzer() {
+        return new RuleBasedOptimizationAnalyzer();
+    }
+
+    /**
+     * 注册基于 LLM 的优化分析器（可选，通过 {@code jagent.evaluation.optimization.llm-enabled=true} 启用）。
+     *
+     * @param properties    JAgent 配置属性
+     * @param modelRegistry 模型注册表
+     * @return LlmOptimizationAnalyzer 实例
+     */
+    @Bean
+    @ConditionalOnProperty(name = "jagent.evaluation.optimization.llm-enabled", havingValue = "true")
+    public OptimizationAnalyzer llmOptimizationAnalyzer(JAgentProperties properties,
+                                                         ModelRegistry modelRegistry) {
+        String modelRef = properties.getEvaluation().getLlmJudgeModel();
+        com.jrl.ai.agent.core.model.Model model = modelRegistry.resolve(modelRef)
+                .orElse(new AgentScopeModelAdapter(modelRef));
+        return new LlmOptimizationAnalyzer(model);
+    }
+
+    /**
      * 注册评测拦截器，自动收集所有 Evaluator Bean。
      *
-     * @param evaluators      所有已注册的评测器
-     * @param compositeScorer 复合评分器
-     * @param store           评测结果存储
+     * @param evaluators              所有已注册的评测器
+     * @param compositeScorer         复合评分器
+     * @param store                   评测结果存储
+     * @param optimizationAnalyzer    优化分析器（可选）
+     * @param optimizationReportStore 优化报告存储（可选）
      * @return EvaluationInterceptor 实例
      */
     @Bean
@@ -296,8 +340,11 @@ public class JAgentAutoConfiguration {
     public EvaluationInterceptor evaluationInterceptor(
             ObjectProvider<Evaluator> evaluators,
             CompositeScorer compositeScorer,
-            EvaluationStore store) {
+            EvaluationStore store,
+            ObjectProvider<OptimizationAnalyzer> optimizationAnalyzer,
+            ObjectProvider<OptimizationReportStore> optimizationReportStore) {
         List<Evaluator> evaluatorList = evaluators.orderedStream().toList();
-        return new EvaluationInterceptor(evaluatorList, compositeScorer, store);
+        return new EvaluationInterceptor(evaluatorList, compositeScorer, store,
+                optimizationAnalyzer.getIfAvailable(), optimizationReportStore.getIfAvailable());
     }
 }

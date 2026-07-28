@@ -79,6 +79,8 @@ public class JAgentProperties {
         private long latencyThresholdMs = 10000;
         /** 五维权重 */
         private Map<String, Double> weights = new LinkedHashMap<>();
+        /** 优化分析配置 */
+        private OptimizationConfig optimization = new OptimizationConfig();
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -94,6 +96,20 @@ public class JAgentProperties {
 
         public Map<String, Double> getWeights() { return weights; }
         public void setWeights(Map<String, Double> weights) { this.weights = weights; }
+
+        public OptimizationConfig getOptimization() { return optimization; }
+        public void setOptimization(OptimizationConfig optimization) { this.optimization = optimization; }
+    }
+
+    /**
+     * 优化分析配置。
+     */
+    public static class OptimizationConfig {
+        /** 是否启用 LLM 优化分析（默认 false，使用规则分析器） */
+        private boolean llmEnabled = false;
+
+        public boolean isLlmEnabled() { return llmEnabled; }
+        public void setLlmEnabled(boolean llmEnabled) { this.llmEnabled = llmEnabled; }
     }
 
     /**
