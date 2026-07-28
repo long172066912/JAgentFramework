@@ -198,13 +198,222 @@ public SkillRegistry mySkillRegistry() {
 
 ---
 
-## 模块说明
+## 模块详解
 
-| 模块 | 职责 | 关键类 |
-|------|------|--------|
-| **jagent-core** | 纯抽象层，定义接口与实体 | `Agent`, `Skill`, `ModelRegistry`, `Router`, `Planner`, `FeedbackHandler` |
-| **jagent-agentscope** | AgentScope 适配 + Spring Boot 集成 | `AgentScopeAgentAdapter`, `SkillToolAdapter`, `JAgentAutoConfiguration`, `AgentFactory` |
-| **jagent-demo** | 业务示例 | 智能打标（含 Skill 评分演示）、翻译、摘要 |
+### jagent-core — 纯抽象层
+
+零框架依赖（仅 JDK + SLF4J），定义 AI Agent 的全部接口契约与扩展点。
+
+#### agent 包 — Agent 核心抽象
+
+| 接口 | 职责 |
+|------|------|
+| `Agent` | 智能体基本契约：`id()` / `name()` / `execute()` / `supportsStreaming()` |
+| `AgentInterceptor` | 四段拦截：`beforeExecute` / `afterExecute` / `onError` / `aroundExecute`（含 `ExecutionChain`） |
+| `AgentLifecycle` | 生命周期管理：创建、启动、停止、销毁 |
+| `AgentRegistry` | Agent 注册表：`register` / `get` / `unregister` / `all` |
+
+```java
+// 自定义拦截器示例
+public class LoggingInterceptor implements AgentInterceptor {
+    @Override
+    public void beforeExecute(Agent agent, ChatMessage input, AgentContext ctx) {
+        log.info("Agent [{}] 开始执行, sessionId={}", agent.name(), ctx.sessionId());
+    }
+    @Override
+    public void afterExecute(Agent agent, ChatMessage input, AgentContext ctx, TaskResult result) {
+        log.info("Agent [{}] 执行完成, 耗时={}ms", agent.name(), result.durationMs());
+    }
+}
+```
+
+#### skill 包 — Skill 能力体系
+
+| 接口/类 | 职责 |
+|------|------|
+| `Skill` | 技能抽象：`name()` / `description()` / `execute()` / `isAvailable()` |
+| `SkillContext` | 技能执行上下文：skillName + input + AgentContext + 原始参数 |
+| `SkillResult` | 执行结果：success/fail + output + 耗时 |
+| `SkillRegistry` | 注册表：`register` / `get` / `unregister` / `all` |
+| `DefaultSkillRegistry` | 默认实现（线程安全 ConcurrentHashMap） |
+| `ScoringSkillRegistry` | 评分感知注册表：`getBest(agentId)` / `rank(agentId)` |
+| `SkillInterceptor` | Skill 层拦截：before / after / onError / around |
+| `SkillScorer` | 评分器接口：`score(agentId, skill)` / `rank()` / `recordExecution()` |
+| `Tool` | 工具注解标记（供反射发现） |
+
+```java
+// 评分排序示例
+ScoringSkillRegistry registry = new ScoringSkillRegistry(delegate, scorer);
+Skill best = registry.getBest("tagger");       // 获取评分最高的 Skill
+List<Skill> ranked = registry.rank("tagger");   // 按评分降序排列所有 Skill
+```
+
+#### model 包 — 多模型抽象
+
+| 接口 | 职责 |
+|------|------|
+| `Model` | 模型抽象：`modelName()` / `provider()` / `generate()` / `supportsStreaming()` |
+| `ModelConfig` | 模型配置：provider + modelName + 参数 |
+| `ModelRegistry` | 注册表：`register` / `resolve(ref)` / `canResolve(ref)` / `all` |
+
+模型引用格式为 `provider:modelName`（如 `dashscope:qwen-plus`），Registry 自动解析。
+
+#### plan 包 — GOAP 规划
+
+| 接口/类 | 职责 |
+|------|------|
+| `Planner` | 规划器：`plan(goal, ctx, state)` / `needsReplan(currentPlan, state)` |
+| `Goal` | 目标定义：名称 + 描述 + 前置/后置条件 |
+| `Plan` | 执行计划：目标 + 步骤列表 + 状态 |
+| `PlanStep` | 计划步骤：动作名称 + 前置条件 + 后置效果 + 代价 |
+| `PlanStatus` | 计划状态枚举：PENDING / RUNNING / COMPLETED / FAILED / CANCELLED |
+
+#### prompt 包 — 提示词管理
+
+| 接口 | 职责 |
+|------|------|
+| `PromptTemplate` | 模板抽象：`name()` / `render(variables)` |
+| `PromptBuilder` | 流式构建器：链式添加变量和段落 |
+| `PromptRegistry` | 模板注册表：`register` / `get` / `all` |
+
+#### 其他包
+
+| 包 | 核心类 | 职责 |
+|------|------|------|
+| `context` | `AgentContext` | 运行时上下文：sessionId / userId / 扩展属性 Map |
+| `io` | `ChatMessage` / `MessageRole` | 消息抽象：user / assistant / system 角色 |
+| `router` | `Router` | 任务路由：根据 Task + Context 选择目标 Agent |
+| `feedback` | `FeedbackHandler` / `Feedback` | 反馈调节：Prompt 反馈 + Skill 反馈 |
+| `retrieval` | `Retriever` / `RetrievalResult` | 知识检索抽象 |
+| `storage` | `KVStore` | KV 存储抽象 |
+| `memory` | `MemoryStore` / `MemoryInterceptor` | 记忆存储 + 拦截 |
+| `monitor` | `MetricsInterceptor` | Micrometer 指标采集（同时适配 Agent/Skill/Memory 三层） |
+| `task` | `Task` / `TaskResult` / `ExecutionTrace` | 任务契约 + 执行追踪 |
+| `task/contract` | `TaskRequest` / `TaskResponse` / `TokenUsage` | 传输无关的标准化协议 |
+
+---
+
+### jagent-agentscope — 适配层 + Spring Boot 集成
+
+桥接 AgentScope 2.0 框架，同时完成 Spring Boot 自动装配。
+
+#### adapter 包 — 适配器
+
+| 类 | 职责 |
+|------|------|
+| `AgentScopeAgentAdapter` | 将 AgentScope `HarnessAgent` 包装为 jagent `Agent` 接口，驱动拦截器链 |
+| `AgentScopeModelAdapter` | 将 AgentScope `ChatModel` 包装为 jagent `Model` 接口 |
+| `MessageConverter` | jagent `ChatMessage` ↔ AgentScope `Msg` 双向转换 |
+| `ContextConverter` | jagent `AgentContext` ↔ AgentScope `RuntimeContext` 双向转换 |
+
+#### config 包 — 自动装配
+
+| 类 | 职责 |
+|------|------|
+| `JAgentAutoConfiguration` | Spring Boot 自动装配入口，注册所有 Bean |
+| `JAgentProperties` | YAML 配置绑定（`jagent.*` 前缀） |
+| `AgentFactory` | Agent 工厂：懒创建 + 缓存，自动挂载 Skill 到 Toolkit |
+
+**自动装配的 Bean 清单：**
+
+| Bean | 实现类 | 条件 |
+|------|------|------|
+| `AgentFactory` (→ `AgentRegistry`) | `AgentFactory` | 始终 |
+| `ModelRegistry` | `AgentScopeModelRegistry` | 始终 |
+| `PromptRegistry` | `InMemoryPromptRegistry` | 始终 |
+| `KVStore` | `JsonFileKVStore` | 始终 |
+| `Router` | `DefaultRouter` | 始终 |
+| `AgentLifecycle` | `AgentLifecycleManager` | 始终 |
+| `Planner` | `AgentScopePlanner` | 始终 |
+| `Retriever` | `AgentScopeRetriever` | classpath 存在 `Knowledge` |
+| `MetricsInterceptor` | `MetricsInterceptor` | classpath 存在 `MeterRegistry` |
+| `SkillScoringInterceptor` | `SkillScoringInterceptor` | 始终 |
+| `SkillScorer` | → `SkillScoringInterceptor` | `@ConditionalOnMissingBean` |
+
+#### skill 包 — Skill 桥接
+
+| 类 | 职责 |
+|------|------|
+| `SkillToolAdapter` | 将 jagent `Skill` 包装为 AgentScope `AgentTool`，自动挂载到 HarnessAgent 的 Toolkit |
+| `SkillScoringInterceptor` | 同时实现 `SkillInterceptor` + `SkillScorer`，在 before/after 中记录统计并评分 |
+
+**Skill 自动挂载流程：**
+```
+SkillRegistry Bean 存在
+    ↓
+AgentFactory 构建 HarnessAgent 时
+    ↓
+遍历 SkillRegistry.all() → 每个 Skill 包装为 SkillToolAdapter
+    ↓
+注册到 Toolkit → HarnessAgent.toolkit(toolkit)
+    ↓
+Agent 推理时 LLM 可发现并调用这些 Skill
+```
+
+#### 其他适配类
+
+| 类 | 适配方向 |
+|------|------|
+| `AgentScopeModelRegistry` | 桥接 AgentScope `ModelRegistry` → jagent `ModelRegistry` |
+| `AgentScopePlanner` | 对接 AgentScope Plan Mode → jagent `Planner` |
+| `AgentScopeRetriever` | 对接 AgentScope `Knowledge.retrieve()` → jagent `Retriever` |
+| `InMemoryPromptRegistry` | 内存级 PromptTemplate 注册表 |
+| `SimplePromptTemplate` | 基于 `{variable}` 占位符的简单模板引擎 |
+| `DefaultRouter` | 基于任务类型的简单路由 |
+| `JsonFileKVStore` | 基于 JSON 文件的 KV 持久化存储 |
+| `AgentLifecycleManager` | Agent 创建/销毁生命周期管理 |
+
+---
+
+### jagent-demo — 业务示例
+
+| 包 | 说明 |
+|------|------|
+| `controller/AgentController` | REST 端点：同步对话、SSE 流式、Agent 列表 |
+| `controller/SkillScoringController` | Skill 评分演示：模拟执行、查看评分、批量模拟 |
+| `service/AgentService` | Agent 调用封装：同步 + 流式两种模式 |
+| `tagging/` | 完整智能打标业务：Agent 调用 + Skill 挂载 + 标签解析 + 向量存储 + 回执机制 |
+| `tagging/skill/` | 向量存储 Skill：`VectorSearchSkill` / `VectorUpsertSkill` / `VectorGetSkill` |
+| `tagging/service/TaggingService` | 打标核心流程：LLM 调用 + 标签数量校验重试 + 向量生成 + Milvus 写入 |
+| `tagging/mq/` | 任务消费 + 回执分发：`TaskConsumer` / `CallbackDispatcher`（MQ/HTTP/不回执） |
+
+---
+
+## 完整配置参考
+
+```yaml
+jagent:
+  # 工作空间路径（Agent 会话持久化、文件操作根目录）
+  workspace: "./workspace"
+
+  # 模型 API Key 配置
+  model:
+    api-keys:
+      dashscope: ${DASHSCOPE_API_KEY}
+
+  # Agent 声明列表
+  agents:
+    translator:
+      name: "翻译助手"                    # 显示名称
+      sys-prompt: "你是中英互译助手"          # 系统提示词
+      model: "dashscope:qwen3.7-flash"     # 模型引用（provider:model）
+      max-iters: 10                        # 最大推理迭代
+      max-retries: 3                       # 最大重试次数
+      skill-priorities:                    # Skill 优先级（Agent 粒度）
+        vector_search: 0.3
+        vector_get: 0.8
+
+    tagger:
+      name: "智能打标助手"
+      sys-prompt: "你是一个专业的内容标签抽取引擎..."
+      model: "dashscope:qwen3.7-flash"
+      max-iters: 10
+      max-retries: 3
+      skill-priorities:
+        vector_search: 0.9
+        vector_upsert: 0.7
+        vector_get: 0.5
+```
 
 ---
 
