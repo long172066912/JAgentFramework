@@ -62,34 +62,34 @@ public class TaggingController {
 
             return Map.<String, Object>of(
                     "success", true,
-                    "contentId", result.contentId(),
-                    "tagCount", result.tags().size(),
-                    "tags", result.tags().stream()
+                    "contentId", result.contentId() != null ? result.contentId() : "",
+                    "tagCount", result.tags() != null ? result.tags().size() : 0,
+                    "tags", result.tags() != null ? result.tags().stream()
                             .map(t -> Map.<String, Object>of(
-                                    "id", t.id(),
-                                    "name", t.tagName(),
-                                    "category", t.category(),
+                                    "id", t.id() != null ? t.id() : "",
+                                    "name", t.tagName() != null ? t.tagName() : "",
+                                    "category", t.category() != null ? t.category() : "",
                                     "confidence", t.confidence(),
                                     "description", t.description() != null ? t.description() : "",
                                     "keywords", t.keywords() != null ? t.keywords() : List.of()
                             ))
-                            .toList(),
+                            .toList() : List.of(),
                     "tokenUsage", result.usage() != null ? Map.of(
-                            "model", result.usage().modelId(),
+                            "model", result.usage().modelId() != null ? result.usage().modelId() : "",
                             "promptTokens", result.usage().promptTokens(),
                             "completionTokens", result.usage().completionTokens(),
                             "totalTokens", result.usage().totalTokens()
                     ) : Map.of(),
-                    "trace", Map.of(
+                    "trace", result.trace() != null ? Map.of(
                             "steps", result.trace().steps().stream()
                                     .map(s -> Map.<String, Object>of(
-                                            "name", s.name(),
+                                            "name", s.name() != null ? s.name() : "",
                                             "duration", s.duration(),
                                             "detail", s.detail() != null ? s.detail() : ""
                                     ))
                                     .toList(),
                             "totalTime", result.trace().totalTime()
-                    ),
+                    ) : Map.of(),
                     "processTime", result.processTime()
             );
         }).subscribeOn(Schedulers.boundedElastic());
