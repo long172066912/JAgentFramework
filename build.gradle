@@ -47,12 +47,6 @@ subprojects {
         options.compilerArgs.addAll(['-parameters'])
     }
 
-    java {
-        toolchain {
-            languageVersion.set(JavaLanguageVersion.of(21))
-        }
-    }
-
     // jagent-demo 不参与 Maven 发布
     if (project.name != 'jagent-demo') {
         apply plugin: 'maven-publish'
