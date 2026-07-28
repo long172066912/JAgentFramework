@@ -79,12 +79,8 @@ public class AgentScopeAgentAdapter implements Agent {
      */
     @Override
     public TaskResult execute(ChatMessage input, AgentContext context) {
-        // 转换消息和上下文
-        Msg asMsg = MessageConverter.toAgentScope(input);
-        RuntimeContext asCtx = ContextConverter.toAgentScope(context);
-
-        // 构建拦截器执行链
-        AgentInterceptor.ExecutionChain chain = buildChain(asMsg, asCtx);
+        // 构建拦截器执行链（转换在链内部进行，确保使用拦截器修改后的值）
+        AgentInterceptor.ExecutionChain chain = buildChain();
 
         // 前置通知
         for (AgentInterceptor interceptor : interceptors) {
@@ -134,12 +130,16 @@ public class AgentScopeAgentAdapter implements Agent {
     /**
      * 构建底层执行链（实际调用 AgentScope）。
      *
-     * @param asMsg AgentScope 消息
-     * @param asCtx AgentScope 运行时上下文
+     * <p>转换在链内部进行，确保使用拦截器修改后的 input 和 context。
+     *
      * @return 执行链，调用时执行 AgentScope 实际推理
      */
-    private AgentInterceptor.ExecutionChain buildChain(Msg asMsg, RuntimeContext asCtx) {
+    private AgentInterceptor.ExecutionChain buildChain() {
         return (input, context) -> {
+            // 在链内部转换消息和上下文，确保使用拦截器修改后的值
+            Msg asMsg = MessageConverter.toAgentScope(input);
+            RuntimeContext asCtx = ContextConverter.toAgentScope(context);
+            
             ExecutionTrace.Builder traceBuilder = ExecutionTrace.builder().start();
 
             long start = System.currentTimeMillis();
