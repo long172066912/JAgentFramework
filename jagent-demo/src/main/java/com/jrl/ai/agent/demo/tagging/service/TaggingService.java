@@ -5,6 +5,8 @@ import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.evaluation.EvaluationResult;
 import com.jrl.ai.agent.core.evaluation.EvaluationStore;
+import com.jrl.ai.agent.core.evaluation.OptimizationReport;
+import com.jrl.ai.agent.core.evaluation.OptimizationReportStore;
 import com.jrl.ai.agent.core.io.ChatMessage;
 import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.core.task.TaskResult;
@@ -57,12 +59,17 @@ public class TaggingService {
     private final AgentFactory agentFactory;
     private final VectorStorageClient vectorClient;
     private final EvaluationStore evaluationStore;
+    private final OptimizationReportStore optimizationReportStore;
 
     public TaggingService(AgentFactory agentFactory, VectorStorageClient vectorClient,
-                          @Autowired(required = false) EvaluationStore evaluationStore) {
+                          @Autowired(required = false) EvaluationStore evaluationStore,
+                          @Autowired(required = false) OptimizationReportStore optimizationReportStore) {
         this.agentFactory = agentFactory;
         this.vectorClient = vectorClient;
         this.evaluationStore = evaluationStore;
+        this.optimizationReportStore = optimizationReportStore;
+        log.info("[TaggingService] Initialized: evaluationStore={}, optimizationReportStore={}",
+                evaluationStore != null, optimizationReportStore != null);
     }
 
     /**
@@ -149,6 +156,7 @@ public class TaggingService {
 
             // 查询本次打标的评测结果（评测系统启用时自动触发）
             EvaluationResult evaluation = null;
+            OptimizationReport optimization = null;
             if (evaluationStore != null) {
                 String actualAgentId = llmResult.agentId();
                 List<EvaluationResult> results = evaluationStore.findByAgent(actualAgentId, 1);
@@ -156,6 +164,19 @@ public class TaggingService {
                 if (!results.isEmpty()) {
                     evaluation = results.getFirst();
                     log.info("[Tagging] evaluation: evalId={} composite={}", evaluation.evalId(), evaluation.compositeScore());
+                    
+                    // 查询优化建议报告
+                    if (optimizationReportStore != null) {
+                        log.info("[Tagging] querying optimization reports for agentId={}", actualAgentId);
+                        List<OptimizationReport> reports = optimizationReportStore.findByAgent(actualAgentId, 1);
+                        log.info("[Tagging] optimization reports found: {}", reports.size());
+                        if (!reports.isEmpty()) {
+                            optimization = reports.getFirst();
+                            log.info("[Tagging] optimization: suggestions={}", optimization.suggestions().size());
+                        }
+                    } else {
+                        log.warn("[Tagging] optimizationReportStore is null");
+                    }
                 } else {
                     log.warn("[Tagging] No evaluation result found for agentId={}. " +
                             "Check if EvaluationInterceptor is registered and jagent.evaluation.enabled=true", actualAgentId);
@@ -166,7 +187,7 @@ public class TaggingService {
 
             ExecutionTrace trace = traceBuilder.build();
             return new TaggingResult(contentId, contentType, tags, contentEmbedding,
-                    llmResult.tokenUsage(), trace, processTime, evaluation);
+                    llmResult.tokenUsage(), trace, processTime, evaluation, optimization, null);
     
         } catch (Exception e) {
             log.error("[Tagging] failed contentId={}", contentId, e);
@@ -175,16 +196,24 @@ public class TaggingService {
 
             // 尝试获取评测结果（即使打标失败，Agent 执行时可能已触发评测）
             EvaluationResult evaluation = null;
+            OptimizationReport optimization = null;
             if (evaluationStore != null) {
                 List<EvaluationResult> results = evaluationStore.findByAgent("tagger", 1);
                 if (!results.isEmpty()) {
                     evaluation = results.getFirst();
+                    // 查询优化建议报告
+                    if (optimizationReportStore != null) {
+                        List<OptimizationReport> reports = optimizationReportStore.findByAgent("tagger", 1);
+                        if (!reports.isEmpty()) {
+                            optimization = reports.getFirst();
+                        }
+                    }
                 }
             }
 
             // 返回部分结果（包含链路和评测信息）
             return new TaggingResult(contentId, contentType, List.of(), List.of(),
-                    null, trace, processTime, evaluation, "打标失败: " + e.getMessage());
+                    null, trace, processTime, evaluation, optimization, "打标失败: " + e.getMessage());
         }
     }
 

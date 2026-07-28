@@ -99,6 +99,19 @@ public class TaggingController {
                             "compositeScore", result.evaluation().compositeScore(),
                             "dimensions", result.evaluation().scores()
                     ) : Map.of(),
+                    "optimization", result.optimization() != null ? Map.of(
+                            "agentId", result.optimization().agentId(),
+                            "compositeScore", result.optimization().compositeScore(),
+                            "suggestions", result.optimization().suggestions().stream()
+                                    .map(s -> Map.<String, Object>of(
+                                            "category", s.category().name(),
+                                            "priority", s.priority().name(),
+                                            "title", s.title(),
+                                            "content", s.content(),
+                                            "reason", s.reason()
+                                    ))
+                                    .toList()
+                    ) : Map.of(),
                     "error", result.error() != null ? result.error() : ""
             );
         }).subscribeOn(Schedulers.boundedElastic());

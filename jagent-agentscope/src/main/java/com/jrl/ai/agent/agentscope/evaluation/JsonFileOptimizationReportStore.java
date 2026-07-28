@@ -37,13 +37,21 @@ public class JsonFileOptimizationReportStore implements OptimizationReportStore 
     @Override
     public void save(OptimizationReport report) {
         String agentId = report.agentId();
+        log.info("[OptimizationStore] save agentId={}, suggestions={}, cacheBefore={}", 
+                agentId, report.suggestions().size(), 
+                cache.containsKey(agentId) ? cache.get(agentId).size() : 0);
         cache.computeIfAbsent(agentId, k -> new ArrayList<>()).addFirst(report);
+        log.info("[OptimizationStore] save done, cacheAfter={}", cache.get(agentId).size());
         persist(agentId);
     }
 
     @Override
     public List<OptimizationReport> findByAgent(String agentId, int limit) {
-        List<OptimizationReport> reports = cache.getOrDefault(agentId, load(agentId));
+        List<OptimizationReport> cached = cache.get(agentId);
+        log.info("[OptimizationStore] findByAgent agentId={}, cacheHit={}, cacheSize={}", 
+                agentId, cached != null, cached != null ? cached.size() : 0);
+        List<OptimizationReport> reports = cached != null ? cached : load(agentId);
+        log.info("[OptimizationStore] findByAgent returning {} reports", reports.size());
         return reports.stream().limit(limit).toList();
     }
 
