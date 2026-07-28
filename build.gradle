@@ -4,17 +4,13 @@ plugins {
 }
 
 group = 'com.jrl.ai'
-version = '0.1.0-SNAPSHOT'
+version = '0.1.0'
 
 // GitHub Packages 发布仓库地址
 ext.githubRepoUrl = "https://maven.pkg.github.com/${System.getenv('GITHUB_REPOSITORY') ?: 'long172066912/JAgentFramework'}"
 
 subprojects {
-    // jagent-demo 不参与发布
-    if (project.name == 'jagent-demo') return
-
     apply plugin: 'java-library'
-    apply plugin: 'maven-publish'
 
     group = 'com.jrl.ai'
     version = rootProject.version
@@ -55,13 +51,18 @@ subprojects {
         toolchain {
             languageVersion.set(JavaLanguageVersion.of(25))
         }
-        // 发布源码和 Javadoc JAR
-        withSourcesJar()
-        withJavadocJar()
     }
 
-    // Maven 发布配置
-    publishing {
+    // jagent-demo 不参与 Maven 发布
+    if (project.name != 'jagent-demo') {
+        apply plugin: 'maven-publish'
+
+        java {
+            withSourcesJar()
+            withJavadocJar()
+        }
+
+        publishing {
         publications {
             mavenJava(MavenPublication) {
                 from components.java
@@ -106,4 +107,5 @@ subprojects {
             }
         }
     }
+    } // end if not jagent-demo
 }
