@@ -1,10 +1,14 @@
 package com.jrl.ai.agent.agentscope.config;
 
 import com.jrl.ai.agent.agentscope.adapter.AgentScopeAgentAdapter;
+import com.jrl.ai.agent.agentscope.skill.SkillToolAdapter;
 import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.agent.AgentInterceptor;
 import com.jrl.ai.agent.core.agent.AgentRegistry;
+import com.jrl.ai.agent.core.skill.Skill;
+import com.jrl.ai.agent.core.skill.SkillRegistry;
 import io.agentscope.core.model.Model;
+import io.agentscope.core.tool.Toolkit;
 import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
 import io.agentscope.harness.agent.HarnessAgent;
 import org.slf4j.Logger;
@@ -29,6 +33,7 @@ public class AgentFactory implements AgentRegistry {
 
     private final JAgentProperties properties;
     private final List<AgentInterceptor> interceptors;
+    private final SkillRegistry skillRegistry;
     private final ConcurrentHashMap<String, Agent> agentCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, HarnessAgent> harnessCache = new ConcurrentHashMap<>();
 
@@ -38,7 +43,7 @@ public class AgentFactory implements AgentRegistry {
      * @param properties JAgent 配置属性
      */
     public AgentFactory(JAgentProperties properties) {
-        this(properties, List.of());
+        this(properties, List.of(), null);
     }
 
     /**
@@ -48,8 +53,20 @@ public class AgentFactory implements AgentRegistry {
      * @param interceptors Agent 拦截器列表（会被复制为不可变副本）
      */
     public AgentFactory(JAgentProperties properties, List<AgentInterceptor> interceptors) {
+        this(properties, interceptors, null);
+    }
+
+    /**
+     * 创建带拦截器和 Skill 注册表的 Agent 工厂。
+     *
+     * @param properties    JAgent 配置属性
+     * @param interceptors  Agent 拦截器列表
+     * @param skillRegistry Skill 注册表（可选，为 null 时不挂载工具）
+     */
+    public AgentFactory(JAgentProperties properties, List<AgentInterceptor> interceptors, SkillRegistry skillRegistry) {
         this.properties = properties;
         this.interceptors = interceptors != null ? List.copyOf(interceptors) : List.of();
+        this.skillRegistry = skillRegistry;
     }
 
     /**
@@ -117,6 +134,12 @@ public class AgentFactory implements AgentRegistry {
                 builder.model(config.getModel());
             }
 
+            // 挂载 Skill 工具到 Toolkit
+            if (skillRegistry != null && !skillRegistry.all().isEmpty()) {
+                Toolkit toolkit = buildToolkit(key, skillRegistry);
+                builder.toolkit(toolkit);
+            }
+
             return builder.build();
         });
     }
@@ -155,6 +178,22 @@ public class AgentFactory implements AgentRegistry {
                 yield null;
             }
         };
+    }
+
+    /**
+     * 构建 Toolkit 并注册所有 Skill 为 AgentTool。
+     *
+     * @param agentKey      Agent 标识（用于日志）
+     * @param skillRegistry Skill 注册表
+     * @return 已注册所有 Skill 的 Toolkit
+     */
+    private Toolkit buildToolkit(String agentKey, SkillRegistry skillRegistry) {
+        Toolkit toolkit = new Toolkit();
+        for (Skill skill : skillRegistry.all()) {
+            log.info("Agent [{}] 挂载 Skill 工具: {}", agentKey, skill.name());
+            toolkit.registerAgentTool(new SkillToolAdapter(skill));
+        }
+        return toolkit;
     }
 
     /**

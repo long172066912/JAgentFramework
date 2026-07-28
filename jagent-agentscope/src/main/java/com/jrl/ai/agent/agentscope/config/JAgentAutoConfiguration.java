@@ -15,6 +15,7 @@ import com.jrl.ai.agent.core.plan.Planner;
 import com.jrl.ai.agent.core.prompt.PromptRegistry;
 import com.jrl.ai.agent.core.retrieval.Retriever;
 import com.jrl.ai.agent.core.router.Router;
+import com.jrl.ai.agent.core.skill.SkillRegistry;
 import com.jrl.ai.agent.core.skill.SkillScorer;
 import com.jrl.ai.agent.core.storage.KVStore;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -58,15 +59,18 @@ public class JAgentAutoConfiguration {
     /**
      * 注册 Agent 工厂 Bean，同时作为 {@link AgentRegistry}。
      *
-     * @param properties   JAgent 配置属性
-     * @param interceptors Agent 拦截器（Spring 自动收集所有 AgentInterceptor Bean）
+     * @param properties    JAgent 配置属性
+     * @param interceptors  Agent 拦截器（Spring 自动收集所有 AgentInterceptor Bean）
+     * @param skillRegistry Skill 注册表（可选，为 null 时不挂载工具）
      * @return AgentFactory 实例
      */
     @Bean
     public AgentFactory agentFactory(JAgentProperties properties,
-                                     ObjectProvider<AgentInterceptor> interceptors) {
+                                     ObjectProvider<AgentInterceptor> interceptors,
+                                     ObjectProvider<SkillRegistry> skillRegistry) {
         List<AgentInterceptor> interceptorList = interceptors.orderedStream().toList();
-        return new AgentFactory(properties, interceptorList);
+        SkillRegistry registry = skillRegistry.getIfAvailable();
+        return new AgentFactory(properties, interceptorList, registry);
     }
 
     /**
