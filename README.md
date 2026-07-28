@@ -75,9 +75,57 @@
 - Gradle 9.x
 - AgentScope 2.0.0
 
-### 1. 引入依赖
+### 1. 配置仓库
+
+GitHub Packages 需要配置仓库地址和认证：
+
+**Gradle（settings.gradle）：**
+```groovy
+dependencyResolutionManagement {
+    repositories {
+        mavenCentral()
+        maven {
+            url = uri("https://maven.pkg.github.com/long172066912/JAgentFramework")
+            credentials {
+                username = project.findProperty("gpr.user") ?: System.getenv("GITHUB_ACTOR")
+                password = project.findProperty("gpr.token") ?: System.getenv("GITHUB_TOKEN")
+            }
+        }
+    }
+}
+```
+
+**Maven（settings.xml）：**
+```xml
+<settings>
+  <profiles>
+    <profile>
+      <id>github</id>
+      <repositories>
+        <repository>
+          <id>github</id>
+          <url>https://maven.pkg.github.com/long172066912/JAgentFramework</url>
+        </repository>
+      </repositories>
+    </profile>
+  </profiles>
+  <activeProfiles>
+    <activeProfile>github</activeProfile>
+  </activeProfiles>
+  <servers>
+    <server>
+      <id>github</id>
+      <username>long172066912</username>
+      <password>YOUR_GITHUB_TOKEN</password>
+    </server>
+  </servers>
+</settings>
+```
+
+### 2. 引入依赖
 
 ```groovy
+// Gradle
 dependencies {
     implementation 'com.jrl.ai:jagent-agentscope:0.1.0-SNAPSHOT'
     // 如果使用 DashScope 模型
@@ -85,7 +133,16 @@ dependencies {
 }
 ```
 
-### 2. 配置 application.yml
+```xml
+<!-- Maven -->
+<dependency>
+    <groupId>com.jrl.ai</groupId>
+    <artifactId>jagent-agentscope</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+</dependency>
+```
+
+### 3. 配置 application.yml
 
 ```yaml
 jagent:
@@ -104,7 +161,7 @@ jagent:
         vector_get: 0.5
 ```
 
-### 3. 启动应用
+### 4. 启动应用
 
 ```java
 @SpringBootApplication
@@ -117,7 +174,7 @@ public class MyApplication {
 }
 ```
 
-### 4. 调用 Agent
+### 5. 调用 Agent
 
 ```java
 @RestController
@@ -472,7 +529,27 @@ curl http://localhost:8080/api/skill-scoring/scores/tagger
 
 # 构建所有模块
 ./gradlew build
+
+# 发布到本地 Maven 仓库（调试用）
+./gradlew publishToMavenLocal
+
+# 发布到 GitHub Packages（需配置环境变量）
+export GITHUB_ACTOR=long172066912
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+./gradlew publishAllPublicationsToGitHubPackagesRepository
 ```
+
+### 发布流程
+
+1. **创建 GitHub Release**：在 GitHub 仓库创建 Release 标签（如 `v0.1.0`），GitHub Actions 会自动发布到 GitHub Packages
+2. **手动发布**：
+   ```bash
+   # 修改版本号
+   # build.gradle: version = '0.1.0'
+   
+   # 发布
+   ./gradlew publishAllPublicationsToGitHubPackagesRepository
+   ```
 
 ---
 

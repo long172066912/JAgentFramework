@@ -1,12 +1,17 @@
 plugins {
     id 'java-library'
+    id 'maven-publish'
 }
 
 group = 'com.jrl.ai'
 version = '0.1.0-SNAPSHOT'
 
+// GitHub Packages 发布仓库地址
+ext.githubRepoUrl = "https://maven.pkg.github.com/${System.getenv('GITHUB_REPOSITORY') ?: 'long172066912/JAgentFramework'}"
+
 subprojects {
     apply plugin: 'java-library'
+    apply plugin: 'maven-publish'
 
     group = 'com.jrl.ai'
     version = rootProject.version
@@ -46,6 +51,56 @@ subprojects {
     java {
         toolchain {
             languageVersion.set(JavaLanguageVersion.of(25))
+        }
+        // 发布源码和 Javadoc JAR
+        withSourcesJar()
+        withJavadocJar()
+    }
+
+    // Maven 发布配置
+    publishing {
+        publications {
+            mavenJava(MavenPublication) {
+                from components.java
+
+                pom {
+                    name = project.name
+                    description = project.description ?: 'JAgentFramework - Java AI Agent Framework'
+                    url = 'https://github.com/long172066912/JAgentFramework'
+
+                    licenses {
+                        license {
+                            name = 'The Apache License, Version 2.0'
+                            url = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
+                        }
+                    }
+
+                    developers {
+                        developer {
+                            id = 'jrl'
+                            name = 'JRL'
+                            email = 'jrl@example.com'
+                        }
+                    }
+
+                    scm {
+                        connection = 'scm:git:git://github.com/long172066912/JAgentFramework.git'
+                        developerConnection = 'scm:git:ssh://github.com/long172066912/JAgentFramework.git'
+                        url = 'https://github.com/long172066912/JAgentFramework'
+                    }
+                }
+            }
+        }
+
+        repositories {
+            maven {
+                name = "GitHubPackages"
+                url = rootProject.ext.githubRepoUrl
+                credentials {
+                    username = System.getenv('GITHUB_ACTOR') ?: project.findProperty('gpr.user')
+                    password = System.getenv('GITHUB_TOKEN') ?: project.findProperty('gpr.token')
+                }
+            }
         }
     }
 }
