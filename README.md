@@ -24,6 +24,7 @@
 | **Spring Boot 集成** | `@Import(JAgentAutoConfiguration.class)` 一键启用，YAML 配置驱动 |
 | **Micrometer 监控** | 自动采集 Agent 执行耗时、Skill 调用次数、Token 消耗等指标 |
 | **可观测性** | `ExecutionTrace` 全链路追踪，记录每步执行详情 |
+| **五维评测系统** | 智能/性能/可靠性/安全/体验五维评估，支持规则评测 + LLM 评测 + 自定义 Agent 评测 |
 
 ---
 
@@ -41,8 +42,8 @@
 │  │ AgentAdapter │ Adapter      │ AgentFactory         │  │
 │  ├─────────────┼──────────────┤ SkillScoring          │  │
 │  │ Model 桥接   │ 拦截器实现    │ Interceptor          │  │
-│  │ AgentScope   │ Metrics      │                      │  │
-│  │ ModelRegistry│ Interceptor  │                      │  │
+│  │ AgentScope   │ Metrics      │ Evaluation           │  │
+│  │ ModelRegistry│ Interceptor  │ Interceptor          │  │
 │  └─────────────┴──────────────┴───────────────────────┘  │
 ├──────────────────────────────────────────────────────────┤
 │                    jagent-core                           │
@@ -57,6 +58,11 @@
 │  │Agent │Task  │Chat  │rieve │KV    │  Metrics         │  │
 │  │Ctx   │Result│Msg   │r     │Store │  Interceptor     │  │
 │  └──────┴──────┴──────┴──────┴──────┴──────────────────┘  │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │                   evaluation                         │  │
+│  │  Evaluator  EvaluationStore  CompositeScorer         │  │
+│  │  五维评估模型    分层评测      评测持久化              │  │
+│  └──────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -127,7 +133,7 @@ dependencyResolutionManagement {
 ```groovy
 // Gradle
 dependencies {
-    implementation 'com.jrl.ai:jagent-agentscope:0.1.0-SNAPSHOT'
+    implementation 'com.jrl.ai:jagent-agentscope:0.2.0'
     // 如果使用 DashScope 模型
     implementation 'io.agentscope:agentscope-extensions-model-dashscope:2.0.0'
 }
@@ -138,7 +144,7 @@ dependencies {
 <dependency>
     <groupId>com.jrl.ai</groupId>
     <artifactId>jagent-agentscope</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
@@ -159,6 +165,18 @@ jagent:
       skill-priorities:
         vector_search: 0.9
         vector_get: 0.5
+  # 评测系统配置（v0.2.0 新增）
+  evaluation:
+    enabled: true                        # 启用评测
+    llm-judge-enabled: false             # 启用 LLM 评测（按需）
+    llm-judge-model: "dashscope:qwen-plus"
+    latency-threshold-ms: 10000          # 性能阈值
+    weights:                             # 五维权重
+      intelligence: 0.3
+      performance: 0.15
+      reliability: 0.2
+      safety: 0.2
+      experience: 0.15
 ```
 
 ### 4. 启动应用
@@ -252,6 +270,34 @@ public SkillRegistry mySkillRegistry() {
 ```
 
 注册后 Skill 会自动通过 `SkillToolAdapter` 桥接为 AgentScope 的 `AgentTool`，挂载到 HarnessAgent 的 Toolkit 中。
+
+### 五维评测系统
+
+Agent 输出质量从五个维度综合评测：
+
+| 维度 | 说明 | 评测层级 |
+|------|------|------|
+| **Intelligence** | 智能：输出质量、相关性、完整性 | Tier2 LLM 评测 |
+| **Performance** | 性能：延迟、吞吐量、Token 消耗 | Tier1 规则评测 |
+| **Reliability** | 可靠性：成功率、一致性 | Tier1 规则评测 |
+| **Safety** | 安全：内容安全、Prompt 泄露 | Tier1 + Tier2 |
+| **Experience** | 体验：用户满意度 | Tier3 人工反馈 |
+
+**配置即启用：**
+```yaml
+jagent:
+  evaluation:
+    enabled: true              # 启用评测
+    llm-judge-enabled: true    # 启用 LLM 评测
+```
+
+**自定义评测器（用自己的 Agent 做评测）：**
+```java
+@Bean
+public Evaluator myAgentEvaluator(Agent myJudgeAgent) {
+    return new AgentEvaluator(myJudgeAgent, EvaluationDimension.INTELLIGENCE);
+}
+```
 
 ---
 
@@ -347,6 +393,7 @@ List<Skill> ranked = registry.rank("tagger");   // 按评分降序排列所有 S
 | `monitor` | `MetricsInterceptor` | Micrometer 指标采集（同时适配 Agent/Skill/Memory 三层） |
 | `task` | `Task` / `TaskResult` / `ExecutionTrace` | 任务契约 + 执行追踪 |
 | `task/contract` | `TaskRequest` / `TaskResponse` / `TokenUsage` | 传输无关的标准化协议 |
+| `evaluation` | `Evaluator` / `EvaluationStore` / `CompositeScorer` | 五维评测：接口 + 数据模型 |
 
 ---
 
@@ -386,6 +433,11 @@ List<Skill> ranked = registry.rank("tagger");   // 按评分降序排列所有 S
 | `MetricsInterceptor` | `MetricsInterceptor` | classpath 存在 `MeterRegistry` |
 | `SkillScoringInterceptor` | `SkillScoringInterceptor` | 始终 |
 | `SkillScorer` | → `SkillScoringInterceptor` | `@ConditionalOnMissingBean` |
+| `RuleBasedEvaluator` | `RuleBasedEvaluator` | `jagent.evaluation.enabled=true` |
+| `LLMJudgeEvaluator` | `LLMJudgeEvaluator` | `jagent.evaluation.llm-judge-enabled=true` |
+| `CompositeScorer` | `DefaultCompositeScorer` | `jagent.evaluation.enabled=true` |
+| `EvaluationStore` | `JsonFileEvaluationStore` | `jagent.evaluation.enabled=true` |
+| `EvaluationInterceptor` | `EvaluationInterceptor` | `jagent.evaluation.enabled=true` |
 
 #### skill 包 — Skill 桥接
 
@@ -420,6 +472,17 @@ Agent 推理时 LLM 可发现并调用这些 Skill
 | `JsonFileKVStore` | 基于 JSON 文件的 KV 持久化存储 |
 | `AgentLifecycleManager` | Agent 创建/销毁生命周期管理 |
 
+#### evaluation 包 — 评测系统实现
+
+| 类 | 职责 |
+|------|------|
+| `RuleBasedEvaluator` | Tier1 零成本规则评测：性能(延迟阈值)、可靠性(成功率)、安全(敏感词/Prompt泄露) |
+| `LLMJudgeEvaluator` | Tier2 LLM 语义评测：调用 ChatModel 对输出打分（智能+安全） |
+| `AgentEvaluator` | 将任意 Agent 包装为 Evaluator，用户可用自己的 Agent 做评测 |
+| `EvaluationInterceptor` | AgentInterceptor 实现，afterExecute 自动触发评测链 |
+| `JsonFileEvaluationStore` | JSON 文件持久化，复用 workspace 目录 |
+| `DefaultOutputFeedbackHandler` | 人工反馈处理，关联到评测结果 |
+
 ---
 
 ### jagent-demo — 业务示例
@@ -427,6 +490,8 @@ Agent 推理时 LLM 可发现并调用这些 Skill
 | 包 | 说明 |
 |------|------|
 | `controller/AgentController` | REST 端点：同步对话、SSE 流式、Agent 列表 |
+| `controller/EvaluationController` | 评测 API：查看评分、历史、聚合指标、人工反馈 |
+| `controller/EvaluationDemoController` | 评测演示：执行对话+自动评测、查看统计 |
 | `controller/SkillScoringController` | Skill 评分演示：模拟执行、查看评分、批量模拟 |
 | `service/AgentService` | Agent 调用封装：同步 + 流式两种模式 |
 | `tagging/` | 完整智能打标业务：Agent 调用 + Skill 挂载 + 标签解析 + 向量存储 + 回执机制 |
@@ -470,6 +535,19 @@ jagent:
         vector_search: 0.9
         vector_upsert: 0.7
         vector_get: 0.5
+
+  # 评测系统配置（v0.2.0 新增）
+  evaluation:
+    enabled: true                        # 启用评测
+    llm-judge-enabled: false             # 启用 LLM 评测（按需）
+    llm-judge-model: "dashscope:qwen-plus"  # LLM 评测模型
+    latency-threshold-ms: 10000          # 性能阈值
+    weights:                             # 五维权重
+      intelligence: 0.3
+      performance: 0.15
+      reliability: 0.2
+      safety: 0.2
+      experience: 0.15
 ```
 
 ---
@@ -501,6 +579,12 @@ curl -X POST http://localhost:8080/api/tagging/tag \
 
 # 查看 Skill 评分
 curl http://localhost:8080/api/skill-scoring/scores/tagger
+
+# 评测演示：执行对话 + 自动评测
+curl -X POST "http://localhost:8080/api/demo/evaluation/run?agentKey=translator&input=Hello"
+
+# 查看评测统计
+curl http://localhost:8080/api/demo/evaluation/stats/translator
 ```
 
 ---
@@ -541,11 +625,11 @@ export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
 
 ### 发布流程
 
-1. **创建 GitHub Release**：在 GitHub 仓库创建 Release 标签（如 `v0.1.0`），GitHub Actions 会自动发布到 GitHub Packages
+1. **创建 GitHub Release**：在 GitHub 仓库创建 Release 标签（如 `v0.2.0`），GitHub Actions 会自动发布到 GitHub Packages
 2. **手动发布**：
    ```bash
    # 修改版本号
-   # build.gradle: version = '0.1.0'
+   # build.gradle: version = '0.2.0'
    
    # 发布
    ./gradlew publishAllPublicationsToGitHubPackagesRepository
