@@ -6,9 +6,13 @@ import com.jrl.ai.agent.agentscope.prompt.InMemoryPromptRegistry;
 import com.jrl.ai.agent.agentscope.router.DefaultRouter;
 import com.jrl.ai.agent.agentscope.skill.SkillScoringInterceptor;
 import com.jrl.ai.agent.agentscope.storage.JsonFileKVStore;
+import com.jrl.ai.agent.agentscope.adapter.AgentScopeModelAdapter;
+import com.jrl.ai.agent.agentscope.evaluation.*;
 import com.jrl.ai.agent.core.agent.AgentInterceptor;
 import com.jrl.ai.agent.core.agent.AgentLifecycle;
 import com.jrl.ai.agent.core.agent.AgentRegistry;
+import com.jrl.ai.agent.core.evaluation.*;
+import com.jrl.ai.agent.core.feedback.OutputFeedbackHandler;
 import com.jrl.ai.agent.core.model.ModelRegistry;
 import com.jrl.ai.agent.core.monitor.MetricsInterceptor;
 import com.jrl.ai.agent.core.plan.Planner;
@@ -29,9 +33,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * JAgent Spring Boot 自动装配。
@@ -198,5 +201,103 @@ public class JAgentAutoConfiguration {
     @ConditionalOnMissingBean
     public SkillScorer skillScorer(SkillScoringInterceptor interceptor) {
         return interceptor;
+    }
+
+    // ==================== 评测体系 ====================
+
+    /**
+     * 注册规则评测器（Tier1，零成本）。
+     *
+     * @param properties JAgent 配置属性
+     * @return RuleBasedEvaluator 实例
+     */
+    @Bean
+    @ConditionalOnProperty(name = "jagent.evaluation.enabled", havingValue = "true")
+    public RuleBasedEvaluator ruleBasedEvaluator(JAgentProperties properties) {
+        return new RuleBasedEvaluator(properties.getEvaluation().getLatencyThresholdMs());
+    }
+
+    /**
+     * 注册 LLM 评测器（Tier2，按需开启）。
+     *
+     * @param properties    JAgent 配置属性
+     * @param modelRegistry 模型注册表
+     * @return LLMJudgeEvaluator 实例
+     */
+    @Bean
+    @ConditionalOnProperty(name = "jagent.evaluation.llm-judge-enabled", havingValue = "true")
+    public LLMJudgeEvaluator llmJudgeEvaluator(JAgentProperties properties,
+                                               ModelRegistry modelRegistry) {
+        String modelRef = properties.getEvaluation().getLlmJudgeModel();
+        com.jrl.ai.agent.core.model.Model model = modelRegistry.resolve(modelRef)
+                .orElse(new AgentScopeModelAdapter(modelRef));
+        return new LLMJudgeEvaluator(model);
+    }
+
+    /**
+     * 注册复合评分器（默认加权实现，可自定义替换）。
+     *
+     * @param properties JAgent 配置属性
+     * @return CompositeScorer 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "jagent.evaluation.enabled", havingValue = "true")
+    public CompositeScorer compositeScorer(JAgentProperties properties) {
+        Map<String, Double> configWeights = properties.getEvaluation().getWeights();
+        if (configWeights != null && !configWeights.isEmpty()) {
+            Map<EvaluationDimension, Double> weights = new EnumMap<>(EvaluationDimension.class);
+            configWeights.forEach((k, v) -> {
+                try {
+                    weights.put(EvaluationDimension.valueOf(k.toUpperCase()), v);
+                } catch (IllegalArgumentException ignored) {
+                    // 忽略未知维度
+                }
+            });
+            return new DefaultCompositeScorer(weights);
+        }
+        return new DefaultCompositeScorer();
+    }
+
+    /**
+     * 注册评测结果存储（JSON 文件实现）。
+     *
+     * @param properties JAgent 配置属性
+     * @return EvaluationStore 实例
+     */
+    @Bean
+    @ConditionalOnProperty(name = "jagent.evaluation.enabled", havingValue = "true")
+    public EvaluationStore evaluationStore(JAgentProperties properties) {
+        return new JsonFileEvaluationStore(Path.of(properties.getWorkspace(), "evaluation"));
+    }
+
+    /**
+     * 注册输出反馈处理器。
+     *
+     * @param store 评测结果存储
+     * @return OutputFeedbackHandler 实例
+     */
+    @Bean
+    @ConditionalOnProperty(name = "jagent.evaluation.enabled", havingValue = "true")
+    public OutputFeedbackHandler outputFeedbackHandler(EvaluationStore store) {
+        return new DefaultOutputFeedbackHandler(store);
+    }
+
+    /**
+     * 注册评测拦截器，自动收集所有 Evaluator Bean。
+     *
+     * @param evaluators      所有已注册的评测器
+     * @param compositeScorer 复合评分器
+     * @param store           评测结果存储
+     * @return EvaluationInterceptor 实例
+     */
+    @Bean
+    @ConditionalOnProperty(name = "jagent.evaluation.enabled", havingValue = "true")
+    public EvaluationInterceptor evaluationInterceptor(
+            ObjectProvider<Evaluator> evaluators,
+            CompositeScorer compositeScorer,
+            EvaluationStore store) {
+        List<Evaluator> evaluatorList = evaluators.orderedStream().toList();
+        return new EvaluationInterceptor(evaluatorList, compositeScorer, store);
     }
 }

@@ -29,6 +29,17 @@ jagent:
         vector_search: 0.9
         vector_upsert: 0.7
         vector_get: 0.5
+  evaluation:
+    enabled: true
+    llm-judge-enabled: false
+    llm-judge-model: "dashscope:qwen-plus"
+    latency-threshold-ms: 10000
+    weights:
+      intelligence: 0.3
+      performance: 0.15
+      reliability: 0.2
+      safety: 0.2
+      experience: 0.15
 
 logging:
   level:

@@ -34,6 +34,9 @@ public class JAgentProperties {
     /** 模型相关配置（API Key 等） */
     private ModelConfig model = new ModelConfig();
 
+    /** 评测相关配置 */
+    private EvaluationConfig evaluation = new EvaluationConfig();
+
     public Map<String, AgentConfig> getAgents() { return agents; }
     public void setAgents(Map<String, AgentConfig> agents) { this.agents = agents; }
 
@@ -42,6 +45,9 @@ public class JAgentProperties {
 
     public ModelConfig getModel() { return model; }
     public void setModel(ModelConfig model) { this.model = model; }
+
+    public EvaluationConfig getEvaluation() { return evaluation; }
+    public void setEvaluation(EvaluationConfig evaluation) { this.evaluation = evaluation; }
 
     /**
      * 模型相关配置。
@@ -52,6 +58,37 @@ public class JAgentProperties {
 
         public Map<String, String> getApiKeys() { return apiKeys; }
         public void setApiKeys(Map<String, String> apiKeys) { this.apiKeys = apiKeys; }
+    }
+
+    /**
+     * 评测相关配置。
+     */
+    public static class EvaluationConfig {
+        /** 是否启用评测（默认 false） */
+        private boolean enabled = false;
+        /** 是否启用 LLM 评测（默认 false） */
+        private boolean llmJudgeEnabled = false;
+        /** LLM 评测使用的模型 */
+        private String llmJudgeModel = "dashscope:qwen-plus";
+        /** 性能阈值（ms） */
+        private long latencyThresholdMs = 10000;
+        /** 五维权重 */
+        private Map<String, Double> weights = new LinkedHashMap<>();
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public boolean isLlmJudgeEnabled() { return llmJudgeEnabled; }
+        public void setLlmJudgeEnabled(boolean llmJudgeEnabled) { this.llmJudgeEnabled = llmJudgeEnabled; }
+
+        public String getLlmJudgeModel() { return llmJudgeModel; }
+        public void setLlmJudgeModel(String llmJudgeModel) { this.llmJudgeModel = llmJudgeModel; }
+
+        public long getLatencyThresholdMs() { return latencyThresholdMs; }
+        public void setLatencyThresholdMs(long latencyThresholdMs) { this.latencyThresholdMs = latencyThresholdMs; }
+
+        public Map<String, Double> getWeights() { return weights; }
+        public void setWeights(Map<String, Double> weights) { this.weights = weights; }
     }
 
     /**
