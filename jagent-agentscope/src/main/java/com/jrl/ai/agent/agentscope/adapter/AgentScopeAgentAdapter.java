@@ -13,6 +13,9 @@ import io.agentscope.core.model.ChatUsage;
 import io.agentscope.harness.agent.HarnessAgent;
 import reactor.core.publisher.Mono;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +28,8 @@ import java.util.Map;
  * 底层调用 HarnessAgent 的 {@code call()} 方法（阻塞等待结果）。
  */
 public class AgentScopeAgentAdapter implements Agent {
+
+    private static final Logger log = LoggerFactory.getLogger(AgentScopeAgentAdapter.class);
 
     private final HarnessAgent delegate;
     private final List<AgentInterceptor> interceptors;
@@ -47,6 +52,8 @@ public class AgentScopeAgentAdapter implements Agent {
     public AgentScopeAgentAdapter(HarnessAgent delegate, List<AgentInterceptor> interceptors) {
         this.delegate = delegate;
         this.interceptors = interceptors != null ? new ArrayList<>(interceptors) : List.of();
+        log.info("AgentScopeAgentAdapter created: agentId={} interceptors={}",
+                delegate.getAgentId(), this.interceptors.size());
     }
 
     @Override

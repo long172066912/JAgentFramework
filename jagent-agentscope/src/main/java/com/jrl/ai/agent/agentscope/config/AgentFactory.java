@@ -1,6 +1,7 @@
 package com.jrl.ai.agent.agentscope.config;
 
 import com.jrl.ai.agent.agentscope.adapter.AgentScopeAgentAdapter;
+import com.jrl.ai.agent.agentscope.model.OpenAICompatibleModel;
 import com.jrl.ai.agent.agentscope.skill.SkillToolAdapter;
 import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.agent.AgentInterceptor;
@@ -147,7 +148,12 @@ public class AgentFactory implements AgentRegistry {
     /**
      * 根据模型引用构建 Model 对象。
      *
-     * <p>模型引用格式为 "provider:model"（如 "dashscope:qwen-plus"）。
+     * <p>模型引用格式为 "provider:model"（如 "dashscope:qwen-plus"、"openai:gpt-4o"）。
+     * 支持两种 provider：
+     * <ul>
+     *   <li>{@code dashscope} — 使用 DashScope 原生 API（可选 baseUrl 用于代理）</li>
+     *   <li>{@code openai} — 使用 OpenAI 兼容 API（TokenPay、OneAPI 等）</li>
+     * </ul>
      * 如果 YAML 中配置了对应 provider 的 API Key，则直接构建 Model；
      * 否则返回 null，由 AgentScope SPI 自动解析。
      *
@@ -161,18 +167,25 @@ public class AgentFactory implements AgentRegistry {
         String provider = modelRef.substring(0, colonIdx);
         String modelName = modelRef.substring(colonIdx + 1);
         Map<String, String> apiKeys = properties.getModel().getApiKeys();
+        Map<String, String> baseUrls = properties.getModel().getBaseUrls();
         String apiKey = apiKeys.get(provider);
+        String baseUrl = baseUrls.get(provider);
+
         if (apiKey == null || apiKey.isBlank()) {
             return null; // 未配置 API Key，回退到环境变量方式
         }
 
-        log.info("使用 YAML 配置的 API Key 构建模型: provider={} model={}", provider, modelName);
+        log.info("构建模型: provider={} model={} baseUrl={}", provider, modelName,
+                baseUrl != null ? baseUrl : "(default)");
+
         return switch (provider.toLowerCase()) {
             case "dashscope" -> DashScopeChatModel.builder()
                     .apiKey(apiKey)
                     .modelName(modelName)
                     .stream(true)
+                    .baseUrl(baseUrl)
                     .build();
+            case "openai" -> new OpenAICompatibleModel(apiKey, modelName, baseUrl, true);
             default -> {
                 log.warn("暂不支持自动构建 {} 的 Model，回退到环境变量方式", provider);
                 yield null;

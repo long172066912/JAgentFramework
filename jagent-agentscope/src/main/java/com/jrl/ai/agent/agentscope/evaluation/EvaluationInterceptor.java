@@ -44,10 +44,11 @@ public class EvaluationInterceptor implements AgentInterceptor {
 
     @Override
     public void afterExecute(Agent agent, ChatMessage input, AgentContext context, TaskResult result) {
+        log.info("[Evaluation] afterExecute triggered for agent={}", agent.id());
         try {
             // 构建评测上下文
             Map<String, Object> taskResultMap = Map.of(
-                    "status", result.status().name(),
+                    "status", result.status() != null ? result.status().name() : "UNKNOWN",
                     "durationMs", result.durationMs()
             );
 
@@ -90,8 +91,8 @@ public class EvaluationInterceptor implements AgentInterceptor {
             // 持久化
             store.save(finalResult);
 
-            log.info("[Evaluation] agent={} composite={:.2f} dims={}",
-                    agent.id(), compositeScore, allScores.size());
+            log.info("[Evaluation] agent={} composite={} dims={}",
+                    agent.id(), String.format("%.2f", compositeScore), allScores.size());
 
         } catch (Exception e) {
             log.error("[Evaluation] Failed to evaluate agent={}: {}", agent.id(), e.getMessage(), e);

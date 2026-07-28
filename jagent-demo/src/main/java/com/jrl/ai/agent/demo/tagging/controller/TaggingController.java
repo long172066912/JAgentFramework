@@ -1,5 +1,6 @@
 package com.jrl.ai.agent.demo.tagging.controller;
 
+import com.jrl.ai.agent.core.evaluation.EvaluationResult;
 import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.demo.tagging.client.MockVectorStorageClient;
 import com.jrl.ai.agent.demo.tagging.model.*;
@@ -53,15 +54,17 @@ public class TaggingController {
     @PostMapping("/tag")
     public Mono<Map<String, Object>> tag(@RequestBody TagRequest request) {
         return Mono.fromCallable(() -> {
-                        TaggingResult result = taggingService.tag(
+            TaggingResult result = taggingService.tag(
                     request.contentId(),
                     request.contentType(),
                     request.contentText(),
                     request.requiredTagCount() != null ? request.requiredTagCount() : 5
             );
 
+            boolean success = result.error() == null;
+
             return Map.<String, Object>of(
-                    "success", true,
+                    "success", success,
                     "contentId", result.contentId() != null ? result.contentId() : "",
                     "tagCount", result.tags() != null ? result.tags().size() : 0,
                     "tags", result.tags() != null ? result.tags().stream()
@@ -90,7 +93,13 @@ public class TaggingController {
                                     .toList(),
                             "totalTime", result.trace().totalTime()
                     ) : Map.of(),
-                    "processTime", result.processTime()
+                    "processTime", result.processTime(),
+                    "evaluation", result.evaluation() != null ? Map.of(
+                            "evalId", result.evaluation().evalId(),
+                            "compositeScore", result.evaluation().compositeScore(),
+                            "dimensions", result.evaluation().scores()
+                    ) : Map.of(),
+                    "error", result.error() != null ? result.error() : ""
             );
         }).subscribeOn(Schedulers.boundedElastic());
     }

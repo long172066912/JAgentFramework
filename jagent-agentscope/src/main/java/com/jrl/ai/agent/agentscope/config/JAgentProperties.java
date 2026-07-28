@@ -55,9 +55,14 @@ public class JAgentProperties {
     public static class ModelConfig {
         /** 各 provider 的 API Key，key 为 provider 标识（如 "dashscope"） */
         private Map<String, String> apiKeys = new LinkedHashMap<>();
+        /** 各 provider 的自定义 Base URL（可选，用于 API 代理） */
+        private Map<String, String> baseUrls = new LinkedHashMap<>();
 
         public Map<String, String> getApiKeys() { return apiKeys; }
         public void setApiKeys(Map<String, String> apiKeys) { this.apiKeys = apiKeys; }
+
+        public Map<String, String> getBaseUrls() { return baseUrls; }
+        public void setBaseUrls(Map<String, String> baseUrls) { this.baseUrls = baseUrls; }
     }
 
     /**

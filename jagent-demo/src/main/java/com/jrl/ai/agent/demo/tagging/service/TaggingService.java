@@ -3,6 +3,8 @@ package com.jrl.ai.agent.demo.tagging.service;
 import com.jrl.ai.agent.agentscope.config.AgentFactory;
 import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.context.AgentContext;
+import com.jrl.ai.agent.core.evaluation.EvaluationResult;
+import com.jrl.ai.agent.core.evaluation.EvaluationStore;
 import com.jrl.ai.agent.core.io.ChatMessage;
 import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.core.task.TaskResult;
@@ -11,6 +13,7 @@ import com.jrl.ai.agent.demo.tagging.client.VectorStorageClient;
 import com.jrl.ai.agent.demo.tagging.model.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -53,10 +56,13 @@ public class TaggingService {
 
     private final AgentFactory agentFactory;
     private final VectorStorageClient vectorClient;
+    private final EvaluationStore evaluationStore;
 
-    public TaggingService(AgentFactory agentFactory, VectorStorageClient vectorClient) {
+    public TaggingService(AgentFactory agentFactory, VectorStorageClient vectorClient,
+                          @Autowired(required = false) EvaluationStore evaluationStore) {
         this.agentFactory = agentFactory;
         this.vectorClient = vectorClient;
+        this.evaluationStore = evaluationStore;
     }
 
     /**
@@ -141,13 +147,43 @@ public class TaggingService {
             long processTime = System.currentTimeMillis() - start;
             ExecutionTrace trace = traceBuilder.build();
             log.info("[Tagging] done contentId={}, tags={}, time={}ms", contentId, tags.size(), processTime);
-    
+
+            // 查询本次打标的评测结果（评测系统启用时自动触发）
+            EvaluationResult evaluation = null;
+            if (evaluationStore != null) {
+                List<EvaluationResult> results = evaluationStore.findByAgent("tagger", 1);
+                log.info("[Tagging] evaluation query: agentId=tagger, found={} results", results.size());
+                if (!results.isEmpty()) {
+                    evaluation = results.getFirst();
+                    log.info("[Tagging] evaluation: evalId={} composite={}", evaluation.evalId(), evaluation.compositeScore());
+                } else {
+                    log.warn("[Tagging] No evaluation result found for tagger. " +
+                            "Check if EvaluationInterceptor is registered and jagent.evaluation.enabled=true");
+                }
+            } else {
+                log.warn("[Tagging] EvaluationStore is null - evaluation system not enabled");
+            }
+
             return new TaggingResult(contentId, contentType, tags, contentEmbedding,
-                    llmResult.tokenUsage(), trace, processTime);
+                    llmResult.tokenUsage(), trace, processTime, evaluation);
     
         } catch (Exception e) {
             log.error("[Tagging] failed contentId={}", contentId, e);
-            throw new TaggingException("打标失败: " + e.getMessage(), e);
+            long processTime = System.currentTimeMillis() - start;
+            ExecutionTrace trace = traceBuilder.build();
+
+            // 尝试获取评测结果（即使打标失败，Agent 执行时可能已触发评测）
+            EvaluationResult evaluation = null;
+            if (evaluationStore != null) {
+                List<EvaluationResult> results = evaluationStore.findByAgent("tagger", 1);
+                if (!results.isEmpty()) {
+                    evaluation = results.getFirst();
+                }
+            }
+
+            // 返回部分结果（包含链路和评测信息）
+            return new TaggingResult(contentId, contentType, List.of(), List.of(),
+                    null, trace, processTime, evaluation, "打标失败: " + e.getMessage());
         }
     }
 
