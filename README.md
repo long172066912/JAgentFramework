@@ -25,6 +25,8 @@
 | **Micrometer 监控** | 自动采集 Agent 执行耗时、Skill 调用次数、Token 消耗等指标 |
 | **可观测性** | `ExecutionTrace` 全链路追踪，记录每步执行详情 |
 | **五维评测系统** | 智能/性能/可靠性/安全/体验五维评估，支持规则评测 + LLM 评测 + 自定义 Agent 评测 |
+| **置信度阈值与自动优化** | 可配置置信度阈值，低于阈值时自动触发 LLM 优化分析，生成 Prompt / Skill / 模型 / 编排四维优化建议 |
+| **评测步骤自动追踪** | 评测步骤自动合并到 Agent 主链路 trace，含评测模型信息，全程可观测 |
 
 ---
 
@@ -133,7 +135,7 @@ dependencyResolutionManagement {
 ```groovy
 // Gradle
 dependencies {
-    implementation 'com.jrl.ai:jagent-agentscope:0.2.0'
+    implementation 'com.jrl.ai:jagent-agentscope:0.3.0'
     // 如果使用 DashScope 模型
     implementation 'io.agentscope:agentscope-extensions-model-dashscope:2.0.0'
 }
@@ -144,7 +146,7 @@ dependencies {
 <dependency>
     <groupId>com.jrl.ai</groupId>
     <artifactId>jagent-agentscope</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
 </dependency>
 ```
 
@@ -170,6 +172,7 @@ jagent:
     enabled: true                        # 启用评测
     llm-judge-enabled: false             # 启用 LLM 评测（按需）
     llm-judge-model: "dashscope:qwen-plus"
+    llm-judge-prompt: ""                 # 自定义 LLM 评测提示词（可选，%s 占位符用于输入/输出）
     latency-threshold-ms: 10000          # 性能阈值
     weights:                             # 五维权重
       intelligence: 0.3
@@ -177,6 +180,11 @@ jagent:
       reliability: 0.2
       safety: 0.2
       experience: 0.15
+    optimization:                        # 优化建议配置（v0.3.0 新增）
+      enabled: true                      # 启用自动优化建议
+      llm-enabled: true                  # 启用 LLM 优化分析
+      llm-model: "dashscope:qwen-plus"   # 优化分析模型
+      confidence-threshold: 0.9          # 置信度阈值，低于此值触发优化建议
 ```
 
 ### 4. 启动应用
@@ -289,6 +297,7 @@ jagent:
   evaluation:
     enabled: true              # 启用评测
     llm-judge-enabled: true    # 启用 LLM 评测
+    llm-judge-prompt: ""       # 自定义 LLM 评测提示词（可选）
 ```
 
 **自定义评测器（用自己的 Agent 做评测）：**
@@ -298,6 +307,29 @@ public Evaluator myAgentEvaluator(Agent myJudgeAgent) {
     return new AgentEvaluator(myJudgeAgent, EvaluationDimension.INTELLIGENCE);
 }
 ```
+
+### 置信度阈值与自动优化建议（v0.3.0 新增）
+
+当评测综合分低于配置的置信度阈值时，系统自动触发 LLM 优化分析，从四个维度生成改进建议：
+
+| 优化维度 | 说明 |
+|----------|------|
+| **PROMPT** | 提示词优化建议 |
+| **SKILL** | Skill 工具增强建议 |
+| **MODEL** | 模型选择与替换建议 |
+| **AGENT_STEP** | Agent 编排流程优化建议 |
+
+```yaml
+jagent:
+  evaluation:
+    optimization:
+      enabled: true                     # 启用自动优化建议
+      llm-enabled: true                 # 使用 LLM 进行优化分析
+      llm-model: "dashscope:qwen-plus"  # 优化分析所用模型
+      confidence-threshold: 0.9         # 低于此分数自动触发优化
+```
+
+评测步骤（`EVAL_RULEBASEDEVALUATOR`、`EVAL_LLMJUDGEEVALUATOR`、`COMPOSITE_SCORE`）会自动合并到 Agent 主链路 trace 中，评测步骤详情包含评测模型信息，全程可观测。
 
 ---
 
@@ -438,6 +470,9 @@ List<Skill> ranked = registry.rank("tagger");   // 按评分降序排列所有 S
 | `CompositeScorer` | `DefaultCompositeScorer` | `jagent.evaluation.enabled=true` |
 | `EvaluationStore` | `JsonFileEvaluationStore` | `jagent.evaluation.enabled=true` |
 | `EvaluationInterceptor` | `EvaluationInterceptor` | `jagent.evaluation.enabled=true` |
+| `OptimizationReportStore` | `JsonFileOptimizationReportStore` | `jagent.evaluation.enabled=true` |
+| `OptimizationAnalyzer` | `RuleBasedOptimizationAnalyzer` | `jagent.evaluation.optimization.enabled=true` |
+| `OptimizationAnalyzer` | `LLMBasedOptimizationAnalyzer` | `jagent.evaluation.optimization.llm-enabled=true` |
 
 #### skill 包 — Skill 桥接
 
@@ -481,6 +516,9 @@ Agent 推理时 LLM 可发现并调用这些 Skill
 | `AgentEvaluator` | 将任意 Agent 包装为 Evaluator，用户可用自己的 Agent 做评测 |
 | `EvaluationInterceptor` | AgentInterceptor 实现，afterExecute 自动触发评测链 |
 | `JsonFileEvaluationStore` | JSON 文件持久化，复用 workspace 目录 |
+| `JsonFileOptimizationReportStore` | 优化报告 JSON 文件持久化存储 |
+| `RuleBasedOptimizationAnalyzer` | 基于规则的优化分析器，根据评测结果生成规则化建议 |
+| `LLMBasedOptimizationAnalyzer` | 基于 LLM 的优化分析器，调用大模型生成 PROMPT/SKILL/MODEL/AGENT_STEP 四维优化建议 |
 | `DefaultOutputFeedbackHandler` | 人工反馈处理，关联到评测结果 |
 
 ---
@@ -541,6 +579,7 @@ jagent:
     enabled: true                        # 启用评测
     llm-judge-enabled: false             # 启用 LLM 评测（按需）
     llm-judge-model: "dashscope:qwen-plus"  # LLM 评测模型
+    llm-judge-prompt: ""                 # 自定义 LLM 评测提示词（可选）
     latency-threshold-ms: 10000          # 性能阈值
     weights:                             # 五维权重
       intelligence: 0.3
@@ -548,6 +587,11 @@ jagent:
       reliability: 0.2
       safety: 0.2
       experience: 0.15
+    optimization:                        # 优化建议配置（v0.3.0 新增）
+      enabled: true                      # 启用自动优化建议
+      llm-enabled: true                  # 启用 LLM 优化分析
+      llm-model: "dashscope:qwen-plus"   # 优化分析模型
+      confidence-threshold: 0.9          # 置信度阈值
 ```
 
 ---
@@ -625,11 +669,11 @@ export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
 
 ### 发布流程
 
-1. **创建 GitHub Release**：在 GitHub 仓库创建 Release 标签（如 `v0.2.0`），GitHub Actions 会自动发布到 GitHub Packages
+1. **创建 GitHub Release**：在 GitHub 仓库创建 Release 标签（如 `v0.3.0`），GitHub Actions 会自动发布到 GitHub Packages
 2. **手动发布**：
    ```bash
    # 修改版本号
-   # build.gradle: version = '0.2.0'
+   # build.gradle: version = '0.3.0'
    
    # 发布
    ./gradlew publishAllPublicationsToGitHubPackagesRepository
