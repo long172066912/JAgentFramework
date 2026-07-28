@@ -36,6 +36,7 @@ jagent:
     latency-threshold-ms: 10000
     optimization:
       llm-enabled: true
+      confidence-threshold: 0.8  # 低于此分数时自动触发优化建议
     weights:
       intelligence: 0.3
       performance: 0.15

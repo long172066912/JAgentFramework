@@ -30,6 +30,7 @@ public class EvaluationInterceptor implements AgentInterceptor {
     private final EvaluationStore store;
     private final OptimizationAnalyzer optimizationAnalyzer;
     private final OptimizationReportStore optimizationReportStore;
+    private final double confidenceThreshold;
 
     /**
      * 创建评测拦截器（不含优化分析）。
@@ -41,7 +42,7 @@ public class EvaluationInterceptor implements AgentInterceptor {
     public EvaluationInterceptor(List<Evaluator> evaluators,
                                  CompositeScorer compositeScorer,
                                  EvaluationStore store) {
-        this(evaluators, compositeScorer, store, null, null);
+        this(evaluators, compositeScorer, store, null, null, 0.8);
     }
 
     /**
@@ -58,11 +59,31 @@ public class EvaluationInterceptor implements AgentInterceptor {
                                  EvaluationStore store,
                                  OptimizationAnalyzer optimizationAnalyzer,
                                  OptimizationReportStore optimizationReportStore) {
+        this(evaluators, compositeScorer, store, optimizationAnalyzer, optimizationReportStore, 0.8);
+    }
+
+    /**
+     * 创建评测拦截器（含优化分析和置信度阈值）。
+     *
+     * @param evaluators              所有已注册的评测器
+     * @param compositeScorer         复合评分器
+     * @param store                   评测结果存储
+     * @param optimizationAnalyzer    优化分析器（可选）
+     * @param optimizationReportStore 优化报告存储（可选）
+     * @param confidenceThreshold     置信度阈值，低于此分数时触发优化建议
+     */
+    public EvaluationInterceptor(List<Evaluator> evaluators,
+                                 CompositeScorer compositeScorer,
+                                 EvaluationStore store,
+                                 OptimizationAnalyzer optimizationAnalyzer,
+                                 OptimizationReportStore optimizationReportStore,
+                                 double confidenceThreshold) {
         this.evaluators = evaluators;
         this.compositeScorer = compositeScorer;
         this.store = store;
         this.optimizationAnalyzer = optimizationAnalyzer;
         this.optimizationReportStore = optimizationReportStore;
+        this.confidenceThreshold = confidenceThreshold;
     }
 
     @Override
@@ -158,19 +179,26 @@ public class EvaluationInterceptor implements AgentInterceptor {
             log.info("[Evaluation] agent={} composite={} dims={} evalTime={}ms",
                     agent.id(), String.format("%.2f", compositeScore), allScores.size(), totalEvalTime);
 
-            // 触发优化分析（如果配置了优化分析器）
+            // 触发优化分析（如果配置了优化分析器且分数低于阈值）
             if (optimizationAnalyzer != null && optimizationReportStore != null) {
-                long optStart = System.currentTimeMillis();
-                try {
-                    OptimizationReport report = optimizationAnalyzer.analyze(finalResult, evalContext);
-                    optimizationReportStore.save(report);
-                    long optDuration = System.currentTimeMillis() - optStart;
-                    log.info("[Optimization] agent={} suggestions={} time={}ms",
-                            agent.id(), report.suggestions().size(), optDuration);
-                } catch (Exception ex) {
-                    long optDuration = System.currentTimeMillis() - optStart;
-                    log.warn("[Optimization] Failed to analyze agent={}: {} (time={}ms)",
-                            agent.id(), ex.getMessage(), optDuration);
+                if (compositeScore < confidenceThreshold) {
+                    long optStart = System.currentTimeMillis();
+                    try {
+                        log.info("[Optimization] agent={} score={} < threshold={}, triggering optimization analysis",
+                                agent.id(), String.format("%.2f", compositeScore), confidenceThreshold);
+                        OptimizationReport report = optimizationAnalyzer.analyze(finalResult, evalContext);
+                        optimizationReportStore.save(report);
+                        long optDuration = System.currentTimeMillis() - optStart;
+                        log.info("[Optimization] agent={} suggestions={} time={}ms",
+                                agent.id(), report.suggestions().size(), optDuration);
+                    } catch (Exception ex) {
+                        long optDuration = System.currentTimeMillis() - optStart;
+                        log.warn("[Optimization] Failed to analyze agent={}: {} (time={}ms)",
+                                agent.id(), ex.getMessage(), optDuration);
+                    }
+                } else {
+                    log.debug("[Optimization] agent={} score={} >= threshold={}, skipping optimization analysis",
+                            agent.id(), String.format("%.2f", compositeScore), confidenceThreshold);
                 }
             }
 

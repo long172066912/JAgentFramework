@@ -75,6 +75,8 @@ public class JAgentProperties {
         private boolean llmJudgeEnabled = false;
         /** LLM 评测使用的模型 */
         private String llmJudgeModel = "dashscope:qwen-plus";
+        /** LLM 评测 Prompt 模板（可选，使用 %s 占位符分别替换用户输入和 AI 输出） */
+        private String llmJudgePrompt;
         /** 性能阈值（ms） */
         private long latencyThresholdMs = 10000;
         /** 五维权重 */
@@ -90,6 +92,9 @@ public class JAgentProperties {
 
         public String getLlmJudgeModel() { return llmJudgeModel; }
         public void setLlmJudgeModel(String llmJudgeModel) { this.llmJudgeModel = llmJudgeModel; }
+
+        public String getLlmJudgePrompt() { return llmJudgePrompt; }
+        public void setLlmJudgePrompt(String llmJudgePrompt) { this.llmJudgePrompt = llmJudgePrompt; }
 
         public long getLatencyThresholdMs() { return latencyThresholdMs; }
         public void setLatencyThresholdMs(long latencyThresholdMs) { this.latencyThresholdMs = latencyThresholdMs; }
@@ -107,9 +112,14 @@ public class JAgentProperties {
     public static class OptimizationConfig {
         /** 是否启用 LLM 优化分析（默认 false，使用规则分析器） */
         private boolean llmEnabled = false;
+        /** 置信度阈值，低于此分数时自动触发优化建议（默认 0.8） */
+        private double confidenceThreshold = 0.8;
 
         public boolean isLlmEnabled() { return llmEnabled; }
         public void setLlmEnabled(boolean llmEnabled) { this.llmEnabled = llmEnabled; }
+
+        public double getConfidenceThreshold() { return confidenceThreshold; }
+        public void setConfidenceThreshold(double confidenceThreshold) { this.confidenceThreshold = confidenceThreshold; }
     }
 
     /**

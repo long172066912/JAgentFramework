@@ -236,9 +236,11 @@ public class JAgentAutoConfiguration {
     public LLMJudgeEvaluator llmJudgeEvaluator(JAgentProperties properties,
                                                ModelRegistry modelRegistry) {
         String modelRef = properties.getEvaluation().getLlmJudgeModel();
+        String customPrompt = properties.getEvaluation().getLlmJudgePrompt();
         com.jrl.ai.agent.core.model.Model model = modelRegistry.resolve(modelRef)
                 .orElse(new AgentScopeModelAdapter(modelRef));
-        return new LLMJudgeEvaluator(model);
+        log.info("[LLMJudgeEvaluator] model={}, customPrompt={}", modelRef, customPrompt != null);
+        return new LLMJudgeEvaluator(model, customPrompt);
     }
 
     /**
@@ -335,6 +337,7 @@ public class JAgentAutoConfiguration {
     /**
      * 注册评测拦截器，自动收集所有 Evaluator Bean。
      *
+     * @param properties              JAgent 配置属性
      * @param evaluators              所有已注册的评测器
      * @param compositeScorer         复合评分器
      * @param store                   评测结果存储
@@ -345,13 +348,18 @@ public class JAgentAutoConfiguration {
     @Bean
     @ConditionalOnProperty(name = "jagent.evaluation.enabled", havingValue = "true")
     public EvaluationInterceptor evaluationInterceptor(
+            JAgentProperties properties,
             ObjectProvider<Evaluator> evaluators,
             CompositeScorer compositeScorer,
             EvaluationStore store,
             ObjectProvider<OptimizationAnalyzer> optimizationAnalyzer,
             ObjectProvider<OptimizationReportStore> optimizationReportStore) {
         List<Evaluator> evaluatorList = evaluators.orderedStream().toList();
+        double confidenceThreshold = properties.getEvaluation().getOptimization().getConfidenceThreshold();
+        log.info("[EvaluationInterceptor] Creating with {} evaluators, confidenceThreshold={}",
+                evaluatorList.size(), confidenceThreshold);
         return new EvaluationInterceptor(evaluatorList, compositeScorer, store,
-                optimizationAnalyzer.getIfAvailable(), optimizationReportStore.getIfAvailable());
+                optimizationAnalyzer.getIfAvailable(), optimizationReportStore.getIfAvailable(),
+                confidenceThreshold);
     }
 }
