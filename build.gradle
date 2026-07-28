@@ -10,6 +10,9 @@ version = '0.1.0-SNAPSHOT'
 ext.githubRepoUrl = "https://maven.pkg.github.com/${System.getenv('GITHUB_REPOSITORY') ?: 'long172066912/JAgentFramework'}"
 
 subprojects {
+    // jagent-demo 不参与发布
+    if (project.name == 'jagent-demo') return
+
     apply plugin: 'java-library'
     apply plugin: 'maven-publish'
 

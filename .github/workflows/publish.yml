@@ -1,15 +1,15 @@
-name: Publish to GitHub Packages
+name: Release & Publish
 
 on:
-  release:
-    types: [published]
-  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 
 jobs:
-  publish:
+  release:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
 
     steps:
@@ -24,19 +24,19 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Publish to GitHub Packages
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: ./gradlew publishAllPublicationsToGitHubPackagesRepository
-
-      - name: Build release JARs
+      - name: Build JARs
         run: ./gradlew jar sourcesJar javadocJar
 
-      - name: Upload JARs to Release Assets
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             jagent-core/build/libs/*.jar
             jagent-agentscope/build/libs/*.jar
           generate_release_notes: true
+
+      - name: Publish to GitHub Packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: ./gradlew publishAllPublicationsToGitHubPackagesRepository
