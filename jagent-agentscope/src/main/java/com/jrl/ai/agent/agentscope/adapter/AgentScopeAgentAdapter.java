@@ -100,6 +100,9 @@ public class AgentScopeAgentAdapter implements Agent {
                 interceptor.afterExecute(this, input, context, result);
             }
 
+            // 自动合并拦截器产生的额外步骤（如评测步骤）到主链路
+            result = enrichTraceWithInterceptorSteps(result, context);
+
             return result;
         } catch (Exception e) {
             // 异常通知
@@ -183,5 +186,40 @@ public class AgentScopeAgentAdapter implements Agent {
      */
     public HarnessAgent getDelegate() {
         return delegate;
+    }
+
+    /**
+     * 将拦截器产生的额外步骤（如评测步骤）自动合并到主链路中。
+     *
+     * <p>拦截器（如 EvaluationInterceptor）在执行过程中会将额外步骤存储到上下文中，
+     * 此方法在 Agent 执行完成后自动将这些步骤合并到 TaskResult 的链路中。
+     *
+     * @param result  原始任务结果
+     * @param context 运行时上下文
+     * @return 合并了拦截器步骤的新任务结果
+     */
+    @SuppressWarnings("unchecked")
+    private TaskResult enrichTraceWithInterceptorSteps(TaskResult result, AgentContext context) {
+        // 从上下文中获取评测步骤
+        List<ExecutionTrace.Step> evalSteps = context.<List<ExecutionTrace.Step>>get("jagent.evaluation.steps").orElse(null);
+        Long evalTime = context.<Long>get("jagent.evaluation.time").orElse(0L);
+
+        if (evalSteps == null || evalSteps.isEmpty()) {
+            return result;
+        }
+
+        // 合并步骤到主链路
+        ExecutionTrace originalTrace = result.trace();
+        List<ExecutionTrace.Step> allSteps = new ArrayList<>();
+        if (originalTrace != null) {
+            allSteps.addAll(originalTrace.steps());
+        }
+        allSteps.addAll(evalSteps);
+
+        long totalTime = (originalTrace != null ? originalTrace.totalTime() : 0) + evalTime;
+        ExecutionTrace enrichedTrace = new ExecutionTrace(List.copyOf(allSteps), totalTime);
+
+        // 返回带有新链路的结果
+        return result.withTrace(enrichedTrace);
     }
 }

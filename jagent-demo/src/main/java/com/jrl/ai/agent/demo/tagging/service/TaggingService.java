@@ -145,25 +145,26 @@ public class TaggingService {
                     "weighted avg of %d tag vectors".formatted(tags.size()));
     
             long processTime = System.currentTimeMillis() - start;
-            ExecutionTrace trace = traceBuilder.build();
             log.info("[Tagging] done contentId={}, tags={}, time={}ms", contentId, tags.size(), processTime);
 
             // 查询本次打标的评测结果（评测系统启用时自动触发）
             EvaluationResult evaluation = null;
             if (evaluationStore != null) {
-                List<EvaluationResult> results = evaluationStore.findByAgent("tagger", 1);
-                log.info("[Tagging] evaluation query: agentId=tagger, found={} results", results.size());
+                String actualAgentId = llmResult.agentId();
+                List<EvaluationResult> results = evaluationStore.findByAgent(actualAgentId, 1);
+                log.info("[Tagging] evaluation query: agentId={}, found={} results", actualAgentId, results.size());
                 if (!results.isEmpty()) {
                     evaluation = results.getFirst();
                     log.info("[Tagging] evaluation: evalId={} composite={}", evaluation.evalId(), evaluation.compositeScore());
                 } else {
-                    log.warn("[Tagging] No evaluation result found for tagger. " +
-                            "Check if EvaluationInterceptor is registered and jagent.evaluation.enabled=true");
+                    log.warn("[Tagging] No evaluation result found for agentId={}. " +
+                            "Check if EvaluationInterceptor is registered and jagent.evaluation.enabled=true", actualAgentId);
                 }
             } else {
                 log.warn("[Tagging] EvaluationStore is null - evaluation system not enabled");
             }
 
+            ExecutionTrace trace = traceBuilder.build();
             return new TaggingResult(contentId, contentType, tags, contentEmbedding,
                     llmResult.tokenUsage(), trace, processTime, evaluation);
     
@@ -195,9 +196,9 @@ public class TaggingService {
     }
 
     /**
-     * LLM 调用结果（包含输出、Token 消耗和完整 TaskResult）。
+     * LLM 调用结果（包含输出、Token 消耗、完整 TaskResult 和 Agent ID）。
      */
-    private record LLMCallResult(String output, TokenUsage tokenUsage, TaskResult taskResult) {}
+    private record LLMCallResult(String output, TokenUsage tokenUsage, TaskResult taskResult, String agentId) {}
 
     /**
      * 调用 LLM 进行内容理解和标签抽取，确保输出恰好 requiredTagCount 个标签。
@@ -236,7 +237,7 @@ public class TaggingService {
 
             if (tagCount == requiredTagCount) {
                 log.info("[Tagging] LLM 输出 {} 个标签，符合要求（第 {} 次尝试）", tagCount, attempt);
-                return new LLMCallResult(output, result.usage(), result);
+                return new LLMCallResult(output, result.usage(), result, agent.id());
             }
 
             log.warn("[Tagging] LLM 输出 {} 个标签，要求 {} 个，第 {}/{} 次尝试",

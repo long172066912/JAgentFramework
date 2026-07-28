@@ -31,6 +31,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.DependsOn;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.util.*;
@@ -59,6 +62,8 @@ import java.util.stream.Collectors;
 @EnableConfigurationProperties(JAgentProperties.class)
 public class JAgentAutoConfiguration {
 
+    private static final Logger log = LoggerFactory.getLogger(JAgentAutoConfiguration.class);
+
     /**
      * 注册 Agent 工厂 Bean，同时作为 {@link AgentRegistry}。
      *
@@ -69,11 +74,13 @@ public class JAgentAutoConfiguration {
      */
     @Bean
     public AgentFactory agentFactory(JAgentProperties properties,
-                                     ObjectProvider<AgentInterceptor> interceptors,
+                                     List<AgentInterceptor> interceptors,
                                      ObjectProvider<SkillRegistry> skillRegistry) {
-        List<AgentInterceptor> interceptorList = interceptors.orderedStream().toList();
+        log.info("[AgentFactory] Creating AgentFactory with {} interceptors: {}",
+                interceptors.size(),
+                interceptors.stream().map(i -> i.getClass().getSimpleName()).toList());
         SkillRegistry registry = skillRegistry.getIfAvailable();
-        return new AgentFactory(properties, interceptorList, registry);
+        return new AgentFactory(properties, interceptors, registry);
     }
 
     /**

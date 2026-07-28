@@ -54,6 +54,15 @@ public class LLMJudgeEvaluator implements Evaluator {
         this.judgeModel = judgeModel;
     }
 
+    /**
+     * 获取用于评测的大模型。
+     *
+     * @return 评测用 ChatModel
+     */
+    public Model getJudgeModel() {
+        return judgeModel;
+    }
+
     @Override
     public EvaluationResult evaluate(EvaluationContext context) {
         Map<EvaluationDimension, DimensionScore> scores = new EnumMap<>(EvaluationDimension.class);

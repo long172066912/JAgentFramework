@@ -97,10 +97,13 @@ public class EvaluationInterceptor implements AgentInterceptor {
                     EvaluationResult evalResult = evaluator.evaluate(evalContext);
                     long stepDuration = System.currentTimeMillis() - stepStart;
                     allScores.putAll(evalResult.scores());
+                    
+                    // 构建详细的 step 信息
+                    String stepDetail = buildEvalStepDetail(evaluator, evalResult);
                     evalSteps.add(new ExecutionTrace.Step(
                             "EVAL_" + evaluator.getClass().getSimpleName().toUpperCase(),
                             stepDuration,
-                            "dims=" + evalResult.scores().size()
+                            stepDetail
                     ));
                 } catch (Exception e) {
                     long stepDuration = System.currentTimeMillis() - stepStart;
@@ -134,6 +137,10 @@ public class EvaluationInterceptor implements AgentInterceptor {
             long totalEvalTime = System.currentTimeMillis() - evalStart;
             ExecutionTrace enrichedTrace = new ExecutionTrace(List.copyOf(allSteps),
                     originalTrace != null ? originalTrace.totalTime() + totalEvalTime : totalEvalTime);
+
+            // 将评测步骤存储到上下文中，供适配器自动合并到主链路
+            context.put("jagent.evaluation.steps", evalSteps);
+            context.put("jagent.evaluation.time", totalEvalTime);
 
             // 构建最终评测结果
             EvaluationResult finalResult = EvaluationResult.builder(agent.id())
@@ -170,5 +177,29 @@ public class EvaluationInterceptor implements AgentInterceptor {
         } catch (Exception e) {
             log.error("[Evaluation] Failed to evaluate agent={}: {}", agent.id(), e.getMessage(), e);
         }
+    }
+
+    /**
+     * 构建评测步骤的详细信息字符串。
+     *
+     * @param evaluator  评测器
+     * @param evalResult 评测结果
+     * @return 详细信息字符串
+     */
+    private String buildEvalStepDetail(Evaluator evaluator, EvaluationResult evalResult) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("dims=").append(evalResult.scores().size());
+        
+        // 如果是 LLM 评测器，添加模型信息
+        if (evaluator instanceof LLMJudgeEvaluator llmEvaluator) {
+            try {
+                String modelName = llmEvaluator.getJudgeModel().modelId();
+                sb.append(",model=").append(modelName);
+            } catch (Exception e) {
+                // 忽略获取模型名失败
+            }
+        }
+        
+        return sb.toString();
     }
 }

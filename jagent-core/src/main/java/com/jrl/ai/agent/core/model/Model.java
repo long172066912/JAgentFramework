@@ -54,4 +54,16 @@ public interface Model {
     default boolean isAvailable() {
         return true;
     }
+
+    /**
+     * 获取最近一次调用的 Token 消耗。
+     *
+     * <p>用于追踪模型调用的 Token 消耗，可选实现。
+     * 默认返回 null，表示不支持 Token 消耗追踪。
+     *
+     * @return Token 消耗信息，若不支持则返回 null
+     */
+    default com.jrl.ai.agent.core.task.contract.TokenUsage getLastTokenUsage() {
+        return null;
+    }
 }
