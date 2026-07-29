@@ -1,6 +1,7 @@
 package com.jrl.ai.agent.demo.tagging.controller;
 
 import com.jrl.ai.agent.agentscope.config.AgentResponseHelper;
+import com.jrl.ai.agent.core.task.AgentResponse;
 import com.jrl.ai.agent.demo.tagging.client.MockVectorStorageClient;
 import com.jrl.ai.agent.demo.tagging.model.*;
 import com.jrl.ai.agent.demo.tagging.mq.CallbackProducer;
@@ -53,20 +54,21 @@ public class TaggingController {
     @PostMapping("/tag")
     public Mono<Map<String, Object>> tag(@RequestBody TagRequest request) {
         return Mono.fromCallable(() -> {
-            TaggingResult result = taggingService.tag(
+            AgentResponse<TaggingResult> response = taggingService.tag(
                     request.contentId(),
                     request.contentType(),
                     request.contentText(),
                     request.requiredTagCount() != null ? request.requiredTagCount() : 5
             );
 
-            boolean success = result.error() == null;
+            TaggingResult result = response.data();
+            boolean success = response.isSuccess();
 
             return Map.<String, Object>of(
                     "success", success,
-                    "contentId", result.contentId() != null ? result.contentId() : "",
-                    "tagCount", result.tags() != null ? result.tags().size() : 0,
-                    "tags", result.tags() != null ? result.tags().stream()
+                    "contentId", result != null ? result.contentId() : "",
+                    "tagCount", result != null && result.tags() != null ? result.tags().size() : 0,
+                    "tags", result != null && result.tags() != null ? result.tags().stream()
                             .map(t -> Map.<String, Object>of(
                                     "id", t.id() != null ? t.id() : "",
                                     "name", t.tagName() != null ? t.tagName() : "",
@@ -76,12 +78,13 @@ public class TaggingController {
                                     "keywords", t.keywords() != null ? t.keywords() : List.of()
                             ))
                             .toList() : List.of(),
-                    "tokenUsage", AgentResponseHelper.toTokenUsageMap(result.usage()),
-                    "trace", AgentResponseHelper.toTraceMap(result.trace()),
-                    "processTime", result.processTime(),
-                    "evaluation", AgentResponseHelper.toEvaluationMap(result.evaluation()),
-                    "optimization", AgentResponseHelper.toOptimizationMap(result.optimization()),
-                    "error", result.error() != null ? result.error() : ""
+                    // 公共字段全部由 AgentResponseHelper 统一处理
+                    "tokenUsage", AgentResponseHelper.toTokenUsageMap(response.tokenUsage()),
+                    "trace", AgentResponseHelper.toTraceMap(response.trace()),
+                    "processTime", response.processTime(),
+                    "evaluation", AgentResponseHelper.toEvaluationMap(response.evaluation()),
+                    "optimization", AgentResponseHelper.toOptimizationMap(response.optimization()),
+                    "error", response.error() != null ? response.error() : ""
             );
         }).subscribeOn(Schedulers.boundedElastic());
     }

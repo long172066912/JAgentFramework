@@ -383,4 +383,28 @@ public class JAgentAutoConfiguration {
                 optimizationReportStore.getIfAvailable()
         );
     }
+
+    /**
+     * 注册 Agent 通用执行器。
+     *
+     * <p>封装 Agent 调用 + 公共字段自动采集 + 业务数据提取，
+     * 业务层只需提供数据映射逻辑，其余全部由框架处理。
+     *
+     * @param agentFactory            Agent 工厂
+     * @param evaluationStore         评测结果存储（可选）
+     * @param optimizationReportStore 优化报告存储（可选）
+     * @return AgentExecutor 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public AgentExecutor agentExecutor(
+            AgentFactory agentFactory,
+            ObjectProvider<EvaluationStore> evaluationStore,
+            ObjectProvider<OptimizationReportStore> optimizationReportStore) {
+        return new AgentExecutor(
+                agentFactory,
+                evaluationStore.getIfAvailable(),
+                optimizationReportStore.getIfAvailable()
+        );
+    }
 }
