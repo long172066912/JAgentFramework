@@ -8,6 +8,8 @@ import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.core.task.TaskResult;
 import com.jrl.ai.agent.core.task.contract.TokenUsage;
 import io.agentscope.core.agent.RuntimeContext;
+import io.agentscope.core.event.AgentEventType;
+import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.model.ChatUsage;
 import io.agentscope.harness.agent.HarnessAgent;
@@ -147,6 +149,49 @@ public class AgentScopeAgentAdapter implements Agent {
                     tokenUsage, duration
             ).withTrace(traceBuilder.build());
         };
+    }
+
+    // ==================== 流式执行 ====================
+
+    /**
+     * 流式执行 Agent — 通过回调通知文本增量事件。
+     *
+     * <p>利用 Agent 原生的 streamEvents() 能力，通过虚拟线程异步调度，
+     * 每收到一个文本增量就通过回调通知调用方。
+     * 框架层不依赖 Flux，由调用方自行决定如何消费回调。
+     *
+     * @param input    用户输入消息
+     * @param context  运行时上下文
+     * @param onDelta  文本增量回调（每个 chunk 调用一次）
+     * @param onComplete 流完成回调
+     * @param onError  异常回调
+     */
+    public void streamEvents(ChatMessage input, AgentContext context,
+                              java.util.function.Consumer<String> onDelta,
+                              Runnable onComplete,
+                              java.util.function.Consumer<Throwable> onError) {
+        Msg asMsg = MessageConverter.toAgentScope(input);
+        RuntimeContext asCtx = ContextConverter.toAgentScope(context);
+
+        log.info("[Stream] Starting streamEvents for agent={}", id());
+
+        // 通过虚拟线程异步启动流式执行，通过回调通知事件
+        Thread.startVirtualThread(() ->
+            delegate.streamEvents(asMsg, asCtx)
+                    .filter(event -> event.getType() == AgentEventType.TEXT_BLOCK_DELTA)
+                    .map(event -> {
+                        if (event instanceof TextBlockDeltaEvent delta) {
+                            return delta.getDelta();
+                        }
+                        return "";
+                    })
+                    .filter(s -> !s.isEmpty())
+                    .subscribe(
+                            onDelta,
+                            onError::accept,
+                            onComplete::run
+                    )
+        );
     }
 
     /**

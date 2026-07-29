@@ -1,11 +1,15 @@
 package com.jrl.ai.agent.demo.service;
 
+import com.jrl.ai.agent.agentscope.adapter.AgentScopeAgentAdapter;
 import com.jrl.ai.agent.agentscope.config.AgentExecutor;
 import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.io.ChatMessage;
 import com.jrl.ai.agent.core.task.AgentResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -14,9 +18,12 @@ import java.util.Map;
  * Agent 业务服务 — 纯薄代理，所有执行逻辑由 AgentExecutor 统一处理。
  *
  * <p>评测由拦截器（AOP）自动处理，业务层无需关心。
+ * <p>流式能力通过 Agent 原生的 streamEvents() 实现，利用虚拟线程异步调度。
  */
 @Service
 public class AgentService {
+
+    private static final Logger log = LoggerFactory.getLogger(AgentService.class);
 
     private final AgentExecutor agentExecutor;
 
@@ -47,6 +54,43 @@ public class AgentService {
                 context,
                 taskResult -> (String) taskResult.result().getOrDefault("response", "")
         );
+    }
+
+    /**
+     * 流式对话 — 返回文本增量流。
+     *
+     * <p>框架层通过回调通知文本增量事件，demo 层通过 Flux.create() 桥接回调到响应式流，
+     * 实现真正的流式推送。
+     *
+     * @param agentKey  Agent 标识
+     * @param text      用户输入文本
+     * @param sessionId 会话 ID
+     * @param userId    用户 ID
+     * @return 文本增量流
+     */
+    public Flux<String> stream(String agentKey, String text, String sessionId, String userId) {
+        Agent agent = agentExecutor.getAgentFactory().getAgent(agentKey);
+        if (!(agent instanceof AgentScopeAgentAdapter adapter)) {
+            return Flux.error(new UnsupportedOperationException(
+                    "Agent " + agentKey + " does not support streaming"));
+        }
+
+        AgentContext context = AgentContext.builder()
+                .sessionId(sessionId)
+                .userId(userId)
+                .build();
+
+        // 在 demo 层创建 Flux，将框架层的回调通知桥接到响应式流
+        return Flux.create(sink -> {
+            log.info("[Stream] Starting stream for agent={}, sessionId={}", agentKey, sessionId);
+            adapter.streamEvents(
+                    ChatMessage.user(text),
+                    context,
+                    sink::next,
+                    sink::complete,
+                    sink::error
+            );
+        });
     }
 
     /**
