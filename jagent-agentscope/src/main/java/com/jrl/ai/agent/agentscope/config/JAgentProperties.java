@@ -146,6 +146,8 @@ public class JAgentProperties {
         private boolean memoryEnabled = false;
         /** 是否启用 DashScope 联网搜索（默认 false，仅 dashscope provider 支持） */
         private boolean enableSearch = false;
+        /** 是否启用模型推理/思考模式（默认 false，开启后响应更慢但更深入） */
+        private boolean enableThinking = false;
 
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
@@ -176,6 +178,9 @@ public class JAgentProperties {
 
         public boolean isEnableSearch() { return enableSearch; }
         public void setEnableSearch(boolean enableSearch) { this.enableSearch = enableSearch; }
+
+        public boolean isEnableThinking() { return enableThinking; }
+        public void setEnableThinking(boolean enableThinking) { this.enableThinking = enableThinking; }
 
         /**
          * 渲染用户提示词模板，替换 {variable} 占位符。

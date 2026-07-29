@@ -140,7 +140,7 @@ public class AgentFactory implements AgentRegistry {
             }
 
             // 如果 YAML 中配置了 API Key，直接构建 Model 对象（避免依赖环境变量）
-            Model model = buildModel(config.getModel(), config.isEnableSearch());
+            Model model = buildModel(config.getModel(), config.isEnableSearch(), config.isEnableThinking());
             if (model != null) {
                 builder.model(model);
             } else {
@@ -170,11 +170,12 @@ public class AgentFactory implements AgentRegistry {
      * 如果 YAML 中配置了对应 provider 的 API Key，则直接构建 Model；
      * 否则返回 null，由 AgentScope SPI 自动解析。
      *
-     * @param modelRef      模型引用（格式: "provider:model"）
-     * @param enableSearch  是否启用联网搜索（仅 dashscope 支持）
+     * @param modelRef       模型引用（格式: "provider:model"）
+     * @param enableSearch   是否启用联网搜索（仅 dashscope 支持）
+     * @param enableThinking 是否启用推理/思考模式
      * @return Model 对象，或 null（未配置 API Key 时）
      */
-    private Model buildModel(String modelRef, boolean enableSearch) {
+    private Model buildModel(String modelRef, boolean enableSearch, boolean enableThinking) {
         int colonIdx = modelRef.indexOf(':');
         if (colonIdx <= 0) return null;
 
@@ -205,7 +206,7 @@ public class AgentFactory implements AgentRegistry {
                 }
                 yield b.build();
             }
-            case "openai" -> new OpenAICompatibleModel(apiKey, modelName, baseUrl, true);
+            case "openai" -> new OpenAICompatibleModel(apiKey, modelName, baseUrl, true, enableThinking);
             default -> {
                 log.warn("暂不支持自动构建 {} 的 Model，回退到环境变量方式", provider);
                 yield null;

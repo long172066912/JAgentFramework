@@ -37,25 +37,28 @@ public class OpenAICompatibleModel extends ChatModelBase {
     private final String modelName;
     private final String baseUrl;
     private final boolean stream;
+    private final boolean enableThinking;
     private final HttpClient httpClient;
 
     /**
      * 创建 OpenAI 兼容模型。
      *
-     * @param apiKey    API Key（Bearer Token）
-     * @param modelName 模型名称（如 "qwen-plus"、"gpt-4o"）
-     * @param baseUrl   API Base URL（如 "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"）
-     * @param stream    是否启用流式
+     * @param apiKey         API Key（Bearer Token）
+     * @param modelName      模型名称（如 "qwen-plus"、"gpt-4o"）
+     * @param baseUrl        API Base URL（如 "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"）
+     * @param stream         是否启用流式
+     * @param enableThinking 是否启用推理/思考模式（默认 false，开启后响应更慢但更深入）
      */
-    public OpenAICompatibleModel(String apiKey, String modelName, String baseUrl, boolean stream) {
+    public OpenAICompatibleModel(String apiKey, String modelName, String baseUrl, boolean stream, boolean enableThinking) {
         this.apiKey = apiKey;
         this.modelName = modelName;
         this.baseUrl = baseUrl != null ? baseUrl.replaceAll("/+$", "") : "https://api.openai.com/v1";
         this.stream = stream;
+        this.enableThinking = enableThinking;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
                 .build();
-        log.info("OpenAICompatibleModel created: model={} baseUrl={}", modelName, this.baseUrl);
+        log.info("OpenAICompatibleModel created: model={} baseUrl={} thinking={}", modelName, this.baseUrl, enableThinking);
     }
 
     @Override
@@ -145,6 +148,10 @@ public class OpenAICompatibleModel extends ChatModelBase {
         StringBuilder sb = new StringBuilder();
         sb.append("{\"model\":\"").append(escapeJson(modelName)).append("\"");
         sb.append(",\"stream\":").append(useStream);
+        // 推理/思考模式（默认不传此参数，配置开启时才传递）
+        if (enableThinking) {
+            sb.append(",\"enable_thinking\":true");
+        }
         sb.append(",\"messages\":[");
 
         for (int i = 0; i < messages.size(); i++) {

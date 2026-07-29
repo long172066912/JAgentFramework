@@ -168,7 +168,11 @@
             // 保留标签，追加打字指示器
             const tagHtml = contentEl.innerHTML;
             contentEl.innerHTML = tagHtml + '<div class="typing-indicator"><span></span><span></span><span></span></div>';
-            const renderMarkdown = (text) => { contentEl.innerHTML = tagHtml + marked.parse(text); };
+            const renderMarkdown = (text) => { 
+                // 将字面量 \n 转换为实际换行
+                const normalized = text.replace(/\\n/g, '\n');
+                contentEl.innerHTML = tagHtml + marked.parse(normalized); 
+            };
 
             isStreaming = true;
             document.getElementById('sendBtn').disabled = true;
@@ -271,8 +275,19 @@
         }
 
         async function fetchEvaluation(sessionId, messageEl, originalText) {
+            const contentEl = messageEl.querySelector('.content');
+            
+            // 始终显示"联网搜索"按钮
+            if (originalText) {
+                const retryBtn = document.createElement('button');
+                retryBtn.className = 'retry-btn';
+                retryBtn.innerHTML = '<span class="retry-icon">🌐</span> 联网搜索';
+                retryBtn.onclick = () => retryWithWebSearch(originalText);
+                contentEl.appendChild(retryBtn);
+            }
+            
+            // 异步查询评测（不阻塞按钮显示）
             try {
-                // 等待评测完成（评测是异步的，稍延迟查询）
                 await new Promise(r => setTimeout(r, 1500));
                 const resp = await fetch('/api/chat/evaluation?sessionId=' + sessionId);
                 const data = await resp.json();
@@ -283,22 +298,12 @@
                 if (data.score < 0.5) cls = 'low';
                 else if (data.score < 0.7) cls = 'medium';
 
-                const contentEl = messageEl.querySelector('.content');
                 const badge = document.createElement('div');
                 badge.style.display = 'inline-flex';
                 badge.style.alignItems = 'center';
                 badge.className = 'score-badge ' + cls;
                 badge.innerHTML = `<span class="score-dot"></span>置信度 ${scorePercent}分 · ${data.label}`;
                 contentEl.appendChild(badge);
-
-                // 低分时显示"联网搜索"重试按钮
-                if (data.score < 0.7 && originalText) {
-                    const retryBtn = document.createElement('button');
-                    retryBtn.className = 'retry-btn';
-                    retryBtn.innerHTML = '<span class="retry-icon">🌐</span> 联网搜索';
-                    retryBtn.onclick = () => retryWithWebSearch(originalText);
-                    contentEl.appendChild(retryBtn);
-                }
             } catch (e) {
                 // 评测查询失败不影响主流程
             }
