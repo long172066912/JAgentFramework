@@ -4,6 +4,8 @@ import com.jrl.ai.agent.core.evaluation.EvaluationResult;
 import com.jrl.ai.agent.core.evaluation.OptimizationReport;
 import com.jrl.ai.agent.core.task.contract.TokenUsage;
 
+import java.util.function.Function;
+
 /**
  * Agent 通用执行响应 — 将业务数据与框架公共字段统一封装。
  *
@@ -88,5 +90,31 @@ public record AgentResponse<T>(
      */
     public AgentResponse<T> withOptimization(OptimizationReport optimization) {
         return new AgentResponse<>(data, tokenUsage, trace, processTime, evaluation, optimization, error);
+    }
+
+    /**
+     * 转换业务数据，保留所有公共字段不变。
+     *
+     * <p>用于业务层在 Agent 执行后继续处理数据（如向量生成、持久化等），
+     * 而无需手动拼装 trace/tokenUsage/evaluation 等公共字段。
+     *
+     * <p>用法示例：
+     * <pre>{@code
+     * return agentExecutor.execute("tagger", input, ctx, tr -> parseTags(tr))
+     *     .map(tags -> {
+     *         List<Float> embedding = generateEmbedding(tags);
+     *         return new TaggingResult(contentId, contentType, tags, embedding);
+     *     });
+     * }</pre>
+     *
+     * @param mapper 业务数据转换函数
+     * @param <U>    新的业务数据类型
+     * @return 包含新业务数据 + 原公共字段的 AgentResponse
+     */
+    public <U> AgentResponse<U> map(Function<T, U> mapper) {
+        if (!isSuccess()) {
+            return new AgentResponse<>(null, tokenUsage, trace, processTime, evaluation, optimization, error);
+        }
+        return new AgentResponse<>(mapper.apply(data), tokenUsage, trace, processTime, evaluation, optimization, null);
     }
 }

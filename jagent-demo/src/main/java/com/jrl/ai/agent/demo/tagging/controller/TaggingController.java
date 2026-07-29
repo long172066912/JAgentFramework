@@ -1,6 +1,5 @@
 package com.jrl.ai.agent.demo.tagging.controller;
 
-import com.jrl.ai.agent.agentscope.config.AgentResponseHelper;
 import com.jrl.ai.agent.core.task.AgentResponse;
 import com.jrl.ai.agent.demo.tagging.client.MockVectorStorageClient;
 import com.jrl.ai.agent.demo.tagging.model.*;
@@ -52,41 +51,13 @@ public class TaggingController {
      * </pre>
      */
     @PostMapping("/tag")
-    public Mono<Map<String, Object>> tag(@RequestBody TagRequest request) {
-        return Mono.fromCallable(() -> {
-            AgentResponse<TaggingResult> response = taggingService.tag(
-                    request.contentId(),
-                    request.contentType(),
-                    request.contentText(),
-                    request.requiredTagCount() != null ? request.requiredTagCount() : 5
-            );
-
-            TaggingResult result = response.data();
-            boolean success = response.isSuccess();
-
-            return Map.<String, Object>of(
-                    "success", success,
-                    "contentId", result != null ? result.contentId() : "",
-                    "tagCount", result != null && result.tags() != null ? result.tags().size() : 0,
-                    "tags", result != null && result.tags() != null ? result.tags().stream()
-                            .map(t -> Map.<String, Object>of(
-                                    "id", t.id() != null ? t.id() : "",
-                                    "name", t.tagName() != null ? t.tagName() : "",
-                                    "category", t.category() != null ? t.category() : "",
-                                    "confidence", t.confidence(),
-                                    "description", t.description() != null ? t.description() : "",
-                                    "keywords", t.keywords() != null ? t.keywords() : List.of()
-                            ))
-                            .toList() : List.of(),
-                    // 公共字段全部由 AgentResponseHelper 统一处理
-                    "tokenUsage", AgentResponseHelper.toTokenUsageMap(response.tokenUsage()),
-                    "trace", AgentResponseHelper.toTraceMap(response.trace()),
-                    "processTime", response.processTime(),
-                    "evaluation", AgentResponseHelper.toEvaluationMap(response.evaluation()),
-                    "optimization", AgentResponseHelper.toOptimizationMap(response.optimization()),
-                    "error", response.error() != null ? response.error() : ""
-            );
-        }).subscribeOn(Schedulers.boundedElastic());
+    public Mono<AgentResponse<TaggingResult>> tag(@RequestBody TagRequest request) {
+        return Mono.fromCallable(() -> taggingService.tag(
+                request.contentId(),
+                request.contentType(),
+                request.contentText(),
+                request.requiredTagCount() != null ? request.requiredTagCount() : 5
+        )).subscribeOn(Schedulers.boundedElastic());
     }
 
     /**

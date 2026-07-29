@@ -67,8 +67,8 @@ public class TaggingService {
                 .userId("tagging-system")
                 .build();
 
-        // AgentExecutor.execute: 业务只返回业务数据，公共字段全自动
-        AgentResponse<List<TagInfo>> agentResponse = agentExecutor.execute(
+        // AgentExecutor.execute + map：业务链式处理，公共字段全自动
+        return agentExecutor.execute(
                 "tagger", input, context,
                 (taskResult, traceBuilder) -> {
                     String output = (String) taskResult.result().getOrDefault("response", "");
@@ -76,50 +76,22 @@ public class TaggingService {
                     log.info("[Tagging] parsed {} tags from LLM output", tags.size());
                     return tags;
                 }
-        );
-
-        // Agent 执行失败时直接返回
-        if (!agentResponse.isSuccess()) {
-            return AgentResponse.failure(agentResponse.error(), agentResponse.trace(), agentResponse.processTime());
-        }
-
-        List<TagInfo> tags = agentResponse.data();
-
-        // 2. 以下都是业务逻辑：向量生成 + Milvus 写入
-        long bizStart = System.currentTimeMillis();
-
-        // 为每个标签生成向量
-        for (int i = 0; i < tags.size(); i++) {
-            TagInfo tag = tags.get(i);
-            List<Float> vector = generateEmbedding(tag.tagName());
-            tags.set(i, new TagInfo(
-                    tag.id(), tag.tagName(), tag.category(), tag.level(),
-                    tag.status(), vector, tag.confidence(), tag.description(),
-                    tag.keywords(), tag.extraFields()
-            ));
-        }
-
-        // 写入 Milvus
-        int upserted = vectorClient.batchUpsert(TAG_COLLECTION, tags);
-        log.info("[Tagging] upserted {} tags for contentId={}", upserted, contentId);
-
-        // 计算内容整体向量
-        List<Float> contentEmbedding = computeContentEmbedding(tags);
-
-        long bizTime = System.currentTimeMillis() - bizStart;
-        log.info("[Tagging] done contentId={}, tags={}, bizTime={}ms", contentId, tags.size(), bizTime);
-
-        // 3. 组装业务结果（公共字段从 agentResponse 中透传）
-        TaggingResult bizResult = new TaggingResult(contentId, contentType, tags, contentEmbedding);
-        return new AgentResponse<>(
-                bizResult,
-                agentResponse.tokenUsage(),
-                agentResponse.trace(),
-                agentResponse.processTime(),
-                agentResponse.evaluation(),
-                agentResponse.optimization(),
-                null
-        );
+        ).map(tags -> {
+            // 2. 以下都是业务逻辑：向量生成 + Milvus 写入
+            for (int i = 0; i < tags.size(); i++) {
+                TagInfo tag = tags.get(i);
+                List<Float> vector = generateEmbedding(tag.tagName());
+                tags.set(i, new TagInfo(
+                        tag.id(), tag.tagName(), tag.category(), tag.level(),
+                        tag.status(), vector, tag.confidence(), tag.description(),
+                        tag.keywords(), tag.extraFields()
+                ));
+            }
+            int upserted = vectorClient.batchUpsert(TAG_COLLECTION, tags);
+            log.info("[Tagging] upserted {} tags for contentId={}", upserted, contentId);
+            List<Float> contentEmbedding = computeContentEmbedding(tags);
+            return new TaggingResult(contentId, contentType, tags, contentEmbedding);
+        });
     }
 
     /**
