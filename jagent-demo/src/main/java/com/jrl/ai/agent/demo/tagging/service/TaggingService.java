@@ -4,12 +4,9 @@ import com.jrl.ai.agent.agentscope.config.AgentExecutor;
 import com.jrl.ai.agent.agentscope.config.AgentFactory;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.io.ChatMessage;
-import com.jrl.ai.agent.core.skill.SkillContext;
-import com.jrl.ai.agent.core.skill.SkillResult;
 import com.jrl.ai.agent.core.task.AgentResponse;
 import com.jrl.ai.agent.demo.tagging.client.VectorStorageClient;
 import com.jrl.ai.agent.demo.tagging.model.*;
-import com.jrl.ai.agent.demo.tagging.skill.CategoryLevelSkill;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -36,19 +33,16 @@ public class TaggingService {
     private static final int DEFAULT_TAG_COUNT = 5;
     private static final int MAX_TAG_RETRIES = 3;
     private static final Pattern TAG_PATTERN =
-            Pattern.compile("\\[TAG\\]\\s*name=(.+?),\\s*category=(.+?),\\s*confidence=([\\d.]+),\\s*desc=(.+?),\\s*keywords=(.+)");
+            Pattern.compile("\\[TAG\\]\\s*name=(.+?),\\s*category=(.+?),\\s*level=(\\d+),\\s*confidence=([\\d.]+),\\s*desc=(.+?),\\s*keywords=(.+)");
 
     private final AgentExecutor agentExecutor;
     private final AgentFactory agentFactory;
     private final VectorStorageClient vectorClient;
-    private final CategoryLevelSkill categoryLevelSkill;
 
-    public TaggingService(AgentExecutor agentExecutor, AgentFactory agentFactory, 
-                          VectorStorageClient vectorClient, CategoryLevelSkill categoryLevelSkill) {
+    public TaggingService(AgentExecutor agentExecutor, AgentFactory agentFactory, VectorStorageClient vectorClient) {
         this.agentExecutor = agentExecutor;
         this.agentFactory = agentFactory;
         this.vectorClient = vectorClient;
-        this.categoryLevelSkill = categoryLevelSkill;
     }
 
     /**
@@ -131,35 +125,17 @@ public class TaggingService {
         while (matcher.find()) {
             String name = matcher.group(1).trim();
             String category = matcher.group(2).trim();
-            double confidence = Double.parseDouble(matcher.group(3).trim());
-            String description = matcher.group(4).trim();
-            List<String> keywords = Arrays.stream(matcher.group(5).trim().split("/"))
+            int level = Integer.parseInt(matcher.group(3).trim());  // Agent 调用 Skill 后输出的 level
+            double confidence = Double.parseDouble(matcher.group(4).trim());
+            String description = matcher.group(5).trim();
+            List<String> keywords = Arrays.stream(matcher.group(6).trim().split("/"))
                     .map(String::trim)
                     .filter(s -> !s.isEmpty())
                     .toList();
             String tagId = "tag_%s_%d".formatted(contentId, index++);
-            int level = inferLevel(category);
             tags.add(TagInfo.of(tagId, name, category, level, List.of(), confidence, description, keywords));
         }
         return tags;
-    }
-
-    /**
-     * 使用 CategoryLevelSkill 推断标签层级。
-     */
-    private int inferLevel(String category) {
-        SkillResult result = categoryLevelSkill.execute(new SkillContext(
-                categoryLevelSkill.name(),
-                category,
-                null,
-                Map.of("category", category)
-        ));
-        try {
-            return Integer.parseInt(result.output());
-        } catch (NumberFormatException e) {
-            log.warn("[Tagging] CategoryLevelSkill 返回无效值: {}，使用默认层级 3", result.output());
-            return 3;
-        }
     }
 
     private List<Float> generateEmbedding(String text) {

@@ -24,6 +24,7 @@ public class VectorSkillConfig {
      *   <li>{@link VectorUpsertSkill} — 批量写入向量</li>
      *   <li>{@link VectorSearchSkill} — 相似向量检索</li>
      *   <li>{@link VectorGetSkill} — 批量查询向量</li>
+     *   <li>{@link CategoryLevelSkill} — 根据类目推断标签层级</li>
      * </ul>
      *
      * @param vectorClient 向量存储客户端
@@ -35,19 +36,7 @@ public class VectorSkillConfig {
         registry.register(new VectorUpsertSkill(vectorClient));
         registry.register(new VectorSearchSkill(vectorClient));
         registry.register(new VectorGetSkill(vectorClient));
+        registry.register(new CategoryLevelSkill());  // 层级推断 Skill
         return registry;
-    }
-
-    /**
-     * 类目层级推断 Skill — 根据标签类目名称推断标签层级。
-     *
-     * <p>此 Skill 供业务代码直接调用（非 Agent 工具调用），
-     * 用于将 LLM 输出的类目名称映射为标签层级（1/2/3）。
-     *
-     * @return CategoryLevelSkill 实例
-     */
-    @Bean
-    public CategoryLevelSkill categoryLevelSkill() {
-        return new CategoryLevelSkill();
     }
 }
