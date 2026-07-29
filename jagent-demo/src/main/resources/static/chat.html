@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>智能助手 - JAgent Chat</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; height: 100vh; display: flex; flex-direction: column; }
@@ -21,9 +22,29 @@
         .message .avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
         .message.user .avatar { background: #4f46e5; color: #fff; }
         .message.assistant .avatar { background: #10b981; color: #fff; }
-        .message .content { max-width: 70%; padding: 12px 16px; border-radius: 12px; line-height: 1.6; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
-        .message.user .content { background: #4f46e5; color: #fff; border-bottom-right-radius: 4px; }
+        .message .content { max-width: 70%; padding: 12px 16px; border-radius: 12px; line-height: 1.6; font-size: 14px; word-break: break-word; }
+        .message.user .content { background: #4f46e5; color: #fff; border-bottom-right-radius: 4px; white-space: pre-wrap; }
         .message.assistant .content { background: #fff; color: #333; border-bottom-left-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        
+        /* Markdown 渲染样式 */
+        .message.assistant .content h1, .message.assistant .content h2, .message.assistant .content h3 { margin: 12px 0 8px; font-weight: 600; }
+        .message.assistant .content h1 { font-size: 18px; }
+        .message.assistant .content h2 { font-size: 16px; }
+        .message.assistant .content h3 { font-size: 15px; }
+        .message.assistant .content p { margin: 6px 0; }
+        .message.assistant .content ul, .message.assistant .content ol { padding-left: 20px; margin: 6px 0; }
+        .message.assistant .content li { margin: 3px 0; }
+        .message.assistant .content code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 13px; font-family: 'Menlo', 'Monaco', monospace; }
+        .message.assistant .content pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 8px; overflow-x: auto; margin: 8px 0; }
+        .message.assistant .content pre code { background: none; padding: 0; color: inherit; }
+        .message.assistant .content blockquote { border-left: 3px solid #4f46e5; padding-left: 12px; color: #666; margin: 8px 0; }
+        .message.assistant .content a { color: #4f46e5; text-decoration: none; }
+        .message.assistant .content a:hover { text-decoration: underline; }
+        .message.assistant .content table { border-collapse: collapse; margin: 8px 0; width: 100%; }
+        .message.assistant .content th, .message.assistant .content td { border: 1px solid #e5e5e5; padding: 6px 10px; text-align: left; }
+        .message.assistant .content th { background: #f8fafc; font-weight: 600; }
+        .message.assistant .content hr { border: none; border-top: 1px solid #e5e5e5; margin: 12px 0; }
+        .message.assistant .content strong { font-weight: 600; }
         
         .score-badge { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 4px 10px; border-radius: 12px; font-size: 12px; background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
         .score-badge.medium { background: #fffbeb; border-color: #fde68a; color: #92400e; }
@@ -138,13 +159,16 @@
 
             // 添加用户消息（仅非重试场景）
             if (!originalText) {
-                appendMessage('user', text);
+                appendMessage('user', text, agentKey);
             }
 
             // 添加助手消息占位
-            const assistantEl = appendMessage('assistant', '');
+            const assistantEl = appendMessage('assistant', '', agentKey);
             const contentEl = assistantEl.querySelector('.content');
-            contentEl.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+            // 保留标签，追加打字指示器
+            const tagHtml = contentEl.innerHTML;
+            contentEl.innerHTML = tagHtml + '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+            const renderMarkdown = (text) => { contentEl.innerHTML = tagHtml + marked.parse(text); };
 
             isStreaming = true;
             document.getElementById('sendBtn').disabled = true;
@@ -185,7 +209,8 @@
                             const data = line.slice(5).trim();
                             if (data) {
                                 fullText += data;
-                                contentEl.textContent = fullText;
+                                // 流式过程中用 Markdown 渲染
+                                renderMarkdown(fullText);
                                 scrollToBottom();
                             }
                         }
@@ -197,12 +222,15 @@
                     const data = buffer.slice(5).trim();
                     if (data) {
                         fullText += data;
-                        contentEl.textContent = fullText;
+                        renderMarkdown(fullText);
                     }
                 }
 
                 if (!fullText) {
                     contentEl.textContent = '（未收到响应）';
+                } else {
+                    // 最终完整渲染
+                    renderMarkdown(fullText);
                 }
 
                 // 查询评测结果（仅知识库模式显示评分和重试按钮）
@@ -219,12 +247,13 @@
             }
         }
 
-        function appendMessage(role, text) {
+        function appendMessage(role, text, agentKey = 'chat') {
             const chatArea = document.getElementById('chatArea');
-            const avatar = role === 'user' ? '👤' : '🤖';
+            const avatar = role === 'user' ? '👤' : (agentKey === 'chat-web' ? '🌐' : '🤖');
+            const tag = role === 'assistant' && agentKey === 'chat-web' ? '<div style="font-size:11px;color:#4f46e5;margin-bottom:4px;">🌐 联网搜索</div>' : '';
             const div = document.createElement('div');
             div.className = 'message ' + role;
-            div.innerHTML = `<div class="avatar">${avatar}</div><div class="content">${escapeHtml(text)}</div>`;
+            div.innerHTML = `<div class="avatar">${avatar}</div><div class="content">${tag}${escapeHtml(text)}</div>`;
             chatArea.appendChild(div);
             scrollToBottom();
             return div;
