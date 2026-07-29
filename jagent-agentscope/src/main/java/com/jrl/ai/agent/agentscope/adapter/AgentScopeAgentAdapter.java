@@ -8,8 +8,6 @@ import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.core.task.TaskResult;
 import com.jrl.ai.agent.core.task.contract.TokenUsage;
 import io.agentscope.core.agent.RuntimeContext;
-import io.agentscope.core.event.AgentEventType;
-import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.model.ChatUsage;
 import io.agentscope.harness.agent.HarnessAgent;
@@ -156,8 +154,9 @@ public class AgentScopeAgentAdapter implements Agent {
     /**
      * 流式执行 Agent — 通过回调通知文本增量事件。
      *
-     * <p>利用 Agent 原生的 streamEvents() 能力，通过虚拟线程异步调度，
+     * <p>利用 Agent 原生的 stream() 能力，通过虚拟线程异步调度，
      * 每收到一个文本增量就通过回调通知调用方。
+     * 使用 stream() 而非 streamEvents() 以支持多轮执行（工具调用→最终回复）。
      * 框架层不依赖 Flux，由调用方自行决定如何消费回调。
      *
      * @param input    用户输入消息
@@ -173,23 +172,29 @@ public class AgentScopeAgentAdapter implements Agent {
         Msg asMsg = MessageConverter.toAgentScope(input);
         RuntimeContext asCtx = ContextConverter.toAgentScope(context);
 
-        log.info("[Stream] Starting streamEvents for agent={}", id());
+        log.info("[Stream] Starting stream for agent={}", id());
 
         // 通过虚拟线程异步启动流式执行，通过回调通知事件
+        // 使用 delegate.stream() 而非 streamEvents() 以支持多轮执行
         Thread.startVirtualThread(() ->
-            delegate.streamEvents(asMsg, asCtx)
-                    .filter(event -> event.getType() == AgentEventType.TEXT_BLOCK_DELTA)
-                    .map(event -> {
-                        if (event instanceof TextBlockDeltaEvent delta) {
-                            return delta.getDelta();
-                        }
-                        return "";
-                    })
-                    .filter(s -> !s.isEmpty())
+            delegate.stream(asMsg, asCtx)
+                    .doOnNext(event -> log.info("[Stream] Event type={}, isLast={}, msgLength={}",
+                            event.getType(), event.isLast(),
+                            event.getMessage() != null ? event.getMessage().getTextContent().length() : 0))
+                    .filter(event -> event.getMessage() != null
+                            && event.getMessage().getTextContent() != null
+                            && !event.getMessage().getTextContent().isEmpty())
+                    .map(event -> event.getMessage().getTextContent())
                     .subscribe(
                             onDelta,
-                            onError::accept,
-                            onComplete::run
+                            error -> {
+                                log.error("[Stream] Error", error);
+                                onError.accept(error);
+                            },
+                            () -> {
+                                log.info("[Stream] Completed for agent={}", id());
+                                onComplete.run();
+                            }
                     )
         );
     }
