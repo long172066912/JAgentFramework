@@ -1,5 +1,6 @@
 package com.jrl.ai.agent.demo.tagging.mq;
 
+import com.jrl.ai.agent.core.task.AgentResponse;
 import com.jrl.ai.agent.demo.tagging.model.CallbackType;
 import com.jrl.ai.agent.demo.tagging.model.TaggingCallback;
 import com.jrl.ai.agent.demo.tagging.model.TaggingResult;
@@ -55,7 +56,8 @@ public class TaskConsumer {
             int requiredTagCount = task.requiredTagCount() > 0 ? task.requiredTagCount() : 5;
 
             // 执行打标
-            TaggingResult result = taggingService.tag(contentId, contentType, contentText, requiredTagCount);
+            AgentResponse<TaggingResult> response = taggingService.tag(contentId, contentType, contentText, requiredTagCount);
+            TaggingResult result = response.data();
 
             // 构建成功回执
             Map<String, Object> payload = Map.of(
@@ -70,7 +72,7 @@ public class TaskConsumer {
                     "tagCount", result.tags().size()
             );
 
-            TaggingCallback callback = TaggingCallback.success(task, payload, result.processTime());
+            TaggingCallback callback = TaggingCallback.success(task, payload, response.processTime());
             if (task.callbackType() != CallbackType.NONE) {
                 callbackDispatcher.sendSuccess(task, callback);
             } else {
