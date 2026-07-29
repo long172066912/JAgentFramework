@@ -7,13 +7,12 @@ import com.jrl.ai.agent.core.io.ChatMessage;
 import com.jrl.ai.agent.core.task.AgentResponse;
 import com.jrl.ai.agent.demo.tagging.client.VectorStorageClient;
 import com.jrl.ai.agent.demo.tagging.model.*;
+import com.jrl.ai.agent.demo.util.JsonUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 智能打标服务 — 只关心打标业务逻辑。
@@ -32,8 +31,6 @@ public class TaggingService {
     private static final String TAG_COLLECTION = "tag_vectors";
     private static final int DEFAULT_TAG_COUNT = 5;
     private static final int MAX_TAG_RETRIES = 3;
-    private static final Pattern TAG_PATTERN =
-            Pattern.compile("\\[TAG\\]\\s*name=(.+?),\\s*category=(.+?),\\s*level=(\\d+),\\s*confidence=([\\d.]+),\\s*desc=(.+?),\\s*keywords=(.+)");
 
     private final AgentExecutor agentExecutor;
     private final AgentFactory agentFactory;
@@ -119,21 +116,19 @@ public class TaggingService {
     // ========== 业务私有方法 ==========
 
     private List<TagInfo> parseTags(String llmOutput, String contentId) {
+        String json = JsonUtil.extractJson(llmOutput);
+        LlmTagOutput output = JsonUtil.parse(json, LlmTagOutput.class);
+        if (output == null || output.tags() == null) {
+            log.error("[Tagging] Failed to parse LLM output: {}", llmOutput);
+            return List.of();
+        }
+        
         List<TagInfo> tags = new ArrayList<>();
-        Matcher matcher = TAG_PATTERN.matcher(llmOutput);
         int index = 0;
-        while (matcher.find()) {
-            String name = matcher.group(1).trim();
-            String category = matcher.group(2).trim();
-            int level = Integer.parseInt(matcher.group(3).trim());  // Agent 调用 Skill 后输出的 level
-            double confidence = Double.parseDouble(matcher.group(4).trim());
-            String description = matcher.group(5).trim();
-            List<String> keywords = Arrays.stream(matcher.group(6).trim().split("/"))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .toList();
+        for (LlmTagOutput.LlmTag t : output.tags()) {
             String tagId = "tag_%s_%d".formatted(contentId, index++);
-            tags.add(TagInfo.of(tagId, name, category, level, List.of(), confidence, description, keywords));
+            tags.add(TagInfo.of(tagId, t.name(), t.category(), t.level(), 
+                    List.of(), t.confidence(), t.desc(), t.keywords()));
         }
         return tags;
     }
