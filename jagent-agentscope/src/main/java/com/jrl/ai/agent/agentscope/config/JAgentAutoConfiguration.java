@@ -385,16 +385,13 @@ public class JAgentAutoConfiguration {
     }
 
     /**
-     * 注册 Agent 通用执行器 — 同步/流式双通道，评测为链路内置步骤。
+     * 注册 Agent 通用执行器 — 纯执行引擎，同步/流式/责任链三通道。
      *
-     * <p>封装 Agent 调用 + 公共字段自动采集 + 业务数据提取，
-     * 业务层只需提供数据映射逻辑，其余全部由框架处理。
+     * <p>评测由拦截器（AOP）自动处理，AgentExecutor 不关心评测逻辑。
      *
      * @param agentFactory            Agent 工厂
-     * @param evaluationStore         评测结果存储（可选）
-     * @param optimizationReportStore 优化报告存储（可选）
-     * @param evaluators              评测器列表（流式链路用，可选）
-     * @param compositeScorer         复合评分器（流式链路用，可选）
+     * @param evaluationStore         评测结果存储（可选，用于查询结果）
+     * @param optimizationReportStore 优化报告存储（可选，用于查询结果）
      * @return AgentExecutor 实例
      */
     @Bean
@@ -402,15 +399,11 @@ public class JAgentAutoConfiguration {
     public AgentExecutor agentExecutor(
             AgentFactory agentFactory,
             ObjectProvider<EvaluationStore> evaluationStore,
-            ObjectProvider<OptimizationReportStore> optimizationReportStore,
-            ObjectProvider<List<Evaluator>> evaluators,
-            ObjectProvider<CompositeScorer> compositeScorer) {
+            ObjectProvider<OptimizationReportStore> optimizationReportStore) {
         return new AgentExecutor(
                 agentFactory,
                 evaluationStore.getIfAvailable(),
-                optimizationReportStore.getIfAvailable(),
-                evaluators.getIfAvailable(List::of),
-                compositeScorer.getIfAvailable()
+                optimizationReportStore.getIfAvailable()
         );
     }
 }

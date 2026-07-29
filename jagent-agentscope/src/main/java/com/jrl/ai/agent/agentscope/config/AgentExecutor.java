@@ -2,13 +2,10 @@ package com.jrl.ai.agent.agentscope.config;
 
 import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.context.AgentContext;
-import com.jrl.ai.agent.core.evaluation.CompositeScorer;
-import com.jrl.ai.agent.core.evaluation.EvaluationContext;
 import com.jrl.ai.agent.core.evaluation.EvaluationResult;
 import com.jrl.ai.agent.core.evaluation.EvaluationStore;
 import com.jrl.ai.agent.core.evaluation.OptimizationReport;
 import com.jrl.ai.agent.core.evaluation.OptimizationReportStore;
-import com.jrl.ai.agent.core.evaluation.Evaluator;
 import com.jrl.ai.agent.core.io.ChatMessage;
 import com.jrl.ai.agent.core.task.AgentResponse;
 import com.jrl.ai.agent.core.task.ExecutionTrace;
@@ -20,30 +17,35 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
 
-import java.util.EnumMap;
 import java.util.List;
-import java.util.Map;
-import java.util.function.BiFunction;
 import java.util.function.Function;
 
 /**
- * Agent 通用执行器 — 统一入口，同步/流式双通道，评测为链路内置步骤。
+ * Agent 通用执行器 — 纯执行引擎，同步/流式/责任链三通道。
  *
- * <p>同步链路：{@code execute()} → Agent.execute() → 拦截器链（含评测拦截器）
- * <p>流式链路：{@code stream()} → harness.streamEvents() → doFinally 自动触发评测
+ * <p>评测由拦截器（AOP）自动处理，AgentExecutor 不关心评测逻辑，只负责执行和查询结果。
  *
- * <p>业务层只需关心输入输出，trace/评测/优化建议全部自动处理。
+ * <ul>
+ *   <li>同步链路：{@code execute()} → Agent.execute() → 拦截器链自动生效</li>
+ *   <li>流式链路：{@code stream()} → harness.streamEvents() → 返回文本增量流</li>
+ *   <li>责任链：{@code executeChain()} → 多个 Agent 顺序执行，每个都走拦截器</li>
+ * </ul>
  *
  * <p>用法示例：
  * <pre>{@code
- * // 同步：业务只关心返回值
- * AgentResponse<List<TagInfo>> response = agentExecutor.execute(
- *     "tagger", input, context,
- *     taskResult -> parseTags(taskResult)
+ * // 同步执行
+ * AgentResponse<String> response = agentExecutor.execute(
+ *     "chat", input, context,
+ *     taskResult -> (String) taskResult.result().get("response")
  * );
  *
- * // 流式：返回文本增量流，评测自动处理
+ * // 流式执行
  * Flux<String> stream = agentExecutor.stream("chat", "你好", sessionId, userId);
+ *
+ * // 责任链执行
+ * TaskResult result = agentExecutor.executeChain(
+ *     List.of("chat", "summarizer"), input, context
+ * );
  * }</pre>
  */
 public class AgentExecutor {
@@ -53,43 +55,22 @@ public class AgentExecutor {
     private final AgentFactory agentFactory;
     private final EvaluationStore evaluationStore;
     private final OptimizationReportStore optimizationReportStore;
-    private final List<Evaluator> evaluators;
-    private final CompositeScorer compositeScorer;
 
     /**
-     * 创建 AgentExecutor（完整版）。
+     * 创建 AgentExecutor。
      *
      * @param agentFactory            Agent 工厂
-     * @param evaluationStore         评测结果存储（可选）
-     * @param optimizationReportStore 优化报告存储（可选）
-     * @param evaluators              评测器列表（流式链路用，可选）
-     * @param compositeScorer         复合评分器（流式链路用，可选）
-     */
-    public AgentExecutor(AgentFactory agentFactory,
-                         EvaluationStore evaluationStore,
-                         OptimizationReportStore optimizationReportStore,
-                         List<Evaluator> evaluators,
-                         CompositeScorer compositeScorer) {
-        this.agentFactory = agentFactory;
-        this.evaluationStore = evaluationStore;
-        this.optimizationReportStore = optimizationReportStore;
-        this.evaluators = evaluators != null ? List.copyOf(evaluators) : List.of();
-        this.compositeScorer = compositeScorer;
-        log.info("[AgentExecutor] Initialized: evaluationStore={}, optimizationReportStore={}, evaluators={}",
-                evaluationStore != null, optimizationReportStore != null, this.evaluators.size());
-    }
-
-    /**
-     * 创建 AgentExecutor（简化版 — 无流式评测能力）。
-     *
-     * @param agentFactory            Agent 工厂
-     * @param evaluationStore         评测结果存储（可选）
-     * @param optimizationReportStore 优化报告存储（可选）
+     * @param evaluationStore         评测结果存储（可选，用于查询结果）
+     * @param optimizationReportStore 优化报告存储（可选，用于查询结果）
      */
     public AgentExecutor(AgentFactory agentFactory,
                          EvaluationStore evaluationStore,
                          OptimizationReportStore optimizationReportStore) {
-        this(agentFactory, evaluationStore, optimizationReportStore, List.of(), null);
+        this.agentFactory = agentFactory;
+        this.evaluationStore = evaluationStore;
+        this.optimizationReportStore = optimizationReportStore;
+        log.info("[AgentExecutor] Initialized: evaluationStore={}, optimizationReportStore={}",
+                evaluationStore != null, optimizationReportStore != null);
     }
 
     // ==================== 同步通道 ====================
@@ -128,6 +109,8 @@ public class AgentExecutor {
 
     /**
      * 同步执行 Agent 并返回标准化响应（完整版 — 可追加业务 trace 步骤）。
+     *
+     * <p>评测由拦截器链自动处理，无需手动触发。
      *
      * @param agentKey Agent 配置键名
      * @param input    用户输入
@@ -176,19 +159,17 @@ public class AgentExecutor {
     // ==================== 流式通道 ====================
 
     /**
-     * 流式执行 Agent — 返回文本增量流，流结束后自动触发评测。
+     * 流式执行 Agent — 返回文本增量流。
      *
-     * <p>评测是链路内置步骤，与同步链路一样自动执行，调用方无需关心。
+     * <p>注意：流式链路绕过拦截器，评测需由调用方自行处理。
      *
      * @param agentKey  Agent 标识
      * @param text      用户输入文本
-     * @param sessionId 会话 ID
+     * @param sessionId 会话 ID（供调用方评测用）
      * @param userId    用户 ID
      * @return 文本增量流
      */
     public Flux<String> stream(String agentKey, String text, String sessionId, String userId) {
-        StringBuilder outputCollector = new StringBuilder();
-
         return agentFactory.getHarnessAgent(agentKey)
                 .streamEvents(new UserMessage(text))
                 .filter(event -> event.getType() == AgentEventType.TEXT_BLOCK_DELTA)
@@ -198,62 +179,97 @@ public class AgentExecutor {
                     }
                     return "";
                 })
-                .filter(s -> !s.isEmpty())
-                .doOnNext(outputCollector::append)
-                .doFinally(signal -> {
-                    String output = outputCollector.toString();
-                    if (!output.isEmpty()) {
-                        runStreamEvaluation(agentKey, sessionId, text, output);
-                    }
-                });
+                .filter(s -> !s.isEmpty());
+    }
+
+    // ==================== 责任链执行 ====================
+
+    /**
+     * 执行 Agent 责任链 — 按顺序执行多个 Agent，前一个的输出通过上下文传递给下一个。
+     *
+     * <p>用于业务 Agent 编排，如：{@code [ChatAgent, SummarizerAgent]}
+     * <p>每个 Agent 执行时都走拦截器链（含评测）。
+     *
+     * @param agentKeys Agent 配置键名列表（按执行顺序）
+     * @param input     用户输入
+     * @param context   运行时上下文
+     * @return 最后一个 Agent 的 TaskResult
+     */
+    public TaskResult executeChain(List<String> agentKeys, ChatMessage input, AgentContext context) {
+        if (agentKeys == null || agentKeys.isEmpty()) {
+            throw new IllegalArgumentException("agentKeys cannot be empty");
+        }
+
+        long start = System.currentTimeMillis();
+        TaskResult lastResult = null;
+
+        for (int i = 0; i < agentKeys.size(); i++) {
+            String agentKey = agentKeys.get(i);
+
+            try {
+                Agent agent = agentFactory.getAgent(agentKey);
+                log.debug("[AgentExecutor] Chain step {}/{}: executing agent={}",
+                        i + 1, agentKeys.size(), agentKey);
+
+                TaskResult result = agent.execute(input, context);
+
+                if (!result.isSuccess()) {
+                    log.error("[AgentExecutor] Chain step {} failed: agent={}, error={}",
+                            i + 1, agentKey, result.error());
+                    return result;
+                }
+
+                // 将当前 Agent 的输出写入上下文，供下一个 Agent 使用
+                String response = (String) result.result().getOrDefault("response", "");
+                context.put("chain.previousOutput", response);
+                context.put("chain.previousAgentId", agent.id());
+
+                lastResult = result;
+                log.debug("[AgentExecutor] Chain step {} completed: agent={}", i + 1, agentKey);
+
+            } catch (Exception e) {
+                log.error("[AgentExecutor] Chain step {} unexpected error: agent={}", i + 1, agentKey, e);
+                return TaskResult.failure(agentKey, context.sessionId(),
+                        "CHAIN_ERROR", e.getMessage(), System.currentTimeMillis() - start);
+            }
+        }
+
+        return lastResult;
     }
 
     /**
-     * 流式链路内置评测步骤 — 收集完整输出后执行评测并持久化。
+     * 执行 Agent 责任链并提取业务数据。
      *
-     * <p>遍历所有已注册的 Evaluator，合并评分，计算 compositeScore，保存到 EvaluationStore。
+     * @param agentKeys Agent 配置键名列表
+     * @param input     用户输入
+     * @param context   运行时上下文
+     * @param mapper    从最后一个 Agent 的 TaskResult 提取业务数据
+     * @param <T>       业务数据类型
+     * @return 标准化响应
      */
-    private void runStreamEvaluation(String agentKey, String sessionId, String input, String output) {
-        if (evaluationStore == null || evaluators.isEmpty() || compositeScorer == null) {
-            log.debug("[AgentExecutor] 流式评测跳过: evaluationStore={}, evaluators={}, compositeScorer={}",
-                    evaluationStore != null, evaluators.size(), compositeScorer != null);
-            return;
-        }
+    public <T> AgentResponse<T> executeChain(List<String> agentKeys, ChatMessage input,
+                                              AgentContext context, Function<TaskResult, T> mapper) {
+        long start = System.currentTimeMillis();
+        ExecutionTrace.Builder traceBuilder = ExecutionTrace.builder().start();
 
         try {
-            Agent agent = agentFactory.getAgent(agentKey);
-            EvaluationContext context = EvaluationContext.of(agent.id(), input, output, null);
+            TaskResult chainResult = executeChain(agentKeys, input, context);
 
-            // 遍历所有评测器，合并评分
-            Map<com.jrl.ai.agent.core.evaluation.EvaluationDimension,
-                    com.jrl.ai.agent.core.evaluation.DimensionScore> allScores =
-                    new EnumMap<>(com.jrl.ai.agent.core.evaluation.EvaluationDimension.class);
-
-            for (Evaluator evaluator : evaluators) {
-                try {
-                    EvaluationResult evalResult = evaluator.evaluate(context);
-                    allScores.putAll(evalResult.scores());
-                } catch (Exception e) {
-                    log.warn("[AgentExecutor] Evaluator {} failed: {}",
-                            evaluator.getClass().getSimpleName(), e.getMessage());
-                }
+            if (!chainResult.isSuccess()) {
+                String errorMsg = chainResult.error() != null ? chainResult.error().getMessage() : "链执行失败";
+                return AgentResponse.failure(errorMsg, traceBuilder.build(), System.currentTimeMillis() - start);
             }
 
-            double compositeScore = compositeScorer.compute(allScores);
+            T businessData = mapper.apply(chainResult);
+            long processTime = System.currentTimeMillis() - start;
 
-            EvaluationResult finalResult = EvaluationResult.builder(agent.id())
-                    .sessionId(sessionId)
-                    .scores(allScores)
-                    .compositeScore(compositeScore)
-                    .input(input)
-                    .output(output)
-                    .build();
+            log.info("[AgentExecutor] Chain completed: agents={}, processTime={}ms", agentKeys, processTime);
 
-            evaluationStore.save(finalResult);
-            log.info("[AgentExecutor] 流式评测完成: agent={} session={} score={}",
-                    agentKey, sessionId, String.format("%.2f", compositeScore));
+            return AgentResponse.success(businessData, chainResult.usage(), traceBuilder.build(), processTime);
+
         } catch (Exception e) {
-            log.warn("[AgentExecutor] 流式评测失败: {}", e.getMessage());
+            log.error("[AgentExecutor] Chain unexpected error: agents={}", agentKeys, e);
+            return AgentResponse.failure(e.getMessage(), traceBuilder.build(), System.currentTimeMillis() - start);
         }
     }
 
