@@ -11,13 +11,13 @@ jagent:
       name: "翻译助手"
       sys-prompt: "你是一个翻译引擎。严格遵循以下规则：\n1. 如果用户输入英文，翻译为中文\n2. 如果用户输入中文，翻译为英文\n3. 只输出翻译结果，不要添加任何解释、问候或额外内容\n4. 不要回答用户的问题，只做翻译"
       model: "dashscope:qwen3.7-flash"
-      max-iters: 10
+      max-iters: 3
       max-retries: 3
     summarizer:
       name: "摘要助手"
       sys-prompt: "你是一个文本摘要助手。请用简洁的语言概括用户输入的核心要点，不超过 100 字。"
       model: "dashscope:qwen3.7-flash"
-      max-iters: 10
+      max-iters: 3
       max-retries: 3
     tagger:
       name: "智能打标助手"
@@ -47,7 +47,7 @@ jagent:
         }}
         ```
       model: "dashscope:qwen3.7-flash"
-      max-iters: 10
+      max-iters: 3
       max-retries: 3
       skill-priorities:
         vector_search: 0.9
@@ -56,7 +56,7 @@ jagent:
         category_level_infer: 0.8
   evaluation:
     enabled: true
-    llm-judge-enabled: true
+    llm-judge-enabled: false
     llm-judge-model: "dashscope:qwen-plus"
     latency-threshold-ms: 10000
     optimization:

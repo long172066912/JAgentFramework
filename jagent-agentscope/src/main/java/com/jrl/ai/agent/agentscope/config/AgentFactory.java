@@ -129,6 +129,16 @@ public class AgentFactory implements AgentRegistry {
                     .maxIters(config.getMaxIters())
                     .maxRetries(config.getMaxRetries());
 
+            // 按需开启会话持久化 + workspace 上下文 + 记忆工具（单次任务默认关闭，避免 token 累积）
+            if (!config.isSessionEnabled()) {
+                builder.disableSessionPersistence()
+                       .disableWorkspaceContext();
+            }
+            if (!config.isMemoryEnabled()) {
+                builder.disableMemoryTools()
+                       .disableMemoryHooks();
+            }
+
             // 如果 YAML 中配置了 API Key，直接构建 Model 对象（避免依赖环境变量）
             Model model = buildModel(config.getModel());
             if (model != null) {

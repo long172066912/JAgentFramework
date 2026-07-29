@@ -140,6 +140,10 @@ public class JAgentProperties {
         private int maxRetries = 3;
         /** Skill 优先级配置：skillName -> 基础分 (0.0~1.0) */
         private Map<String, Double> skillPriorities = new LinkedHashMap<>();
+        /** 是否启用会话持久化（默认 false，单次任务无需保持会话历史） */
+        private boolean sessionEnabled = false;
+        /** 是否启用记忆工具（默认 false，单次任务无需记忆读写） */
+        private boolean memoryEnabled = false;
 
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
@@ -161,6 +165,12 @@ public class JAgentProperties {
 
         public Map<String, Double> getSkillPriorities() { return skillPriorities; }
         public void setSkillPriorities(Map<String, Double> skillPriorities) { this.skillPriorities = skillPriorities; }
+
+        public boolean isSessionEnabled() { return sessionEnabled; }
+        public void setSessionEnabled(boolean sessionEnabled) { this.sessionEnabled = sessionEnabled; }
+
+        public boolean isMemoryEnabled() { return memoryEnabled; }
+        public void setMemoryEnabled(boolean memoryEnabled) { this.memoryEnabled = memoryEnabled; }
 
         /**
          * 渲染用户提示词模板，替换 {variable} 占位符。
