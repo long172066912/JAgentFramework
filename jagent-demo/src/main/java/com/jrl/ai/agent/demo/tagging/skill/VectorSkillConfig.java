@@ -37,4 +37,17 @@ public class VectorSkillConfig {
         registry.register(new VectorGetSkill(vectorClient));
         return registry;
     }
+
+    /**
+     * 类目层级推断 Skill — 根据标签类目名称推断标签层级。
+     *
+     * <p>此 Skill 供业务代码直接调用（非 Agent 工具调用），
+     * 用于将 LLM 输出的类目名称映射为标签层级（1/2/3）。
+     *
+     * @return CategoryLevelSkill 实例
+     */
+    @Bean
+    public CategoryLevelSkill categoryLevelSkill() {
+        return new CategoryLevelSkill();
+    }
 }

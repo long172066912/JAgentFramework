@@ -128,8 +128,10 @@ public class JAgentProperties {
     public static class AgentConfig {
         /** Agent 显示名称 */
         private String name;
-        /** 系统提示词 */
+        /** 系统提示词（角色定义，静态） */
         private String sysPrompt = "You are a helpful AI assistant.";
+        /** 用户提示词模板（支持 {variable} 占位符，每次请求动态渲染） */
+        private String userPromptTemplate;
         /** 模型引用（格式: "provider:model"，如 "dashscope:qwen-plus"） */
         private String model = "dashscope:qwen-plus";
         /** 最大推理迭代次数 */
@@ -145,6 +147,9 @@ public class JAgentProperties {
         public String getSysPrompt() { return sysPrompt; }
         public void setSysPrompt(String sysPrompt) { this.sysPrompt = sysPrompt; }
 
+        public String getUserPromptTemplate() { return userPromptTemplate; }
+        public void setUserPromptTemplate(String userPromptTemplate) { this.userPromptTemplate = userPromptTemplate; }
+
         public String getModel() { return model; }
         public void setModel(String model) { this.model = model; }
 
@@ -156,5 +161,23 @@ public class JAgentProperties {
 
         public Map<String, Double> getSkillPriorities() { return skillPriorities; }
         public void setSkillPriorities(Map<String, Double> skillPriorities) { this.skillPriorities = skillPriorities; }
+
+        /**
+         * 渲染用户提示词模板，替换 {variable} 占位符。
+         *
+         * @param variables 变量映射（key 为占位符名称，value 为替换值）
+         * @return 渲染后的提示词，若无模板则返回 null
+         */
+        public String renderUserPrompt(Map<String, Object> variables) {
+            if (userPromptTemplate == null || userPromptTemplate.isEmpty()) {
+                return null;
+            }
+            String result = userPromptTemplate;
+            for (Map.Entry<String, Object> entry : variables.entrySet()) {
+                result = result.replace("{" + entry.getKey() + "}", 
+                        entry.getValue() != null ? entry.getValue().toString() : "");
+            }
+            return result;
+        }
     }
 }

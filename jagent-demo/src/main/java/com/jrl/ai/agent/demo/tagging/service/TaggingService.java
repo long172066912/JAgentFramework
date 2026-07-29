@@ -1,11 +1,15 @@
 package com.jrl.ai.agent.demo.tagging.service;
 
 import com.jrl.ai.agent.agentscope.config.AgentExecutor;
+import com.jrl.ai.agent.agentscope.config.AgentFactory;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.io.ChatMessage;
+import com.jrl.ai.agent.core.skill.SkillContext;
+import com.jrl.ai.agent.core.skill.SkillResult;
 import com.jrl.ai.agent.core.task.AgentResponse;
 import com.jrl.ai.agent.demo.tagging.client.VectorStorageClient;
 import com.jrl.ai.agent.demo.tagging.model.*;
+import com.jrl.ai.agent.demo.tagging.skill.CategoryLevelSkill;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -35,11 +39,16 @@ public class TaggingService {
             Pattern.compile("\\[TAG\\]\\s*name=(.+?),\\s*category=(.+?),\\s*confidence=([\\d.]+),\\s*desc=(.+?),\\s*keywords=(.+)");
 
     private final AgentExecutor agentExecutor;
+    private final AgentFactory agentFactory;
     private final VectorStorageClient vectorClient;
+    private final CategoryLevelSkill categoryLevelSkill;
 
-    public TaggingService(AgentExecutor agentExecutor, VectorStorageClient vectorClient) {
+    public TaggingService(AgentExecutor agentExecutor, AgentFactory agentFactory, 
+                          VectorStorageClient vectorClient, CategoryLevelSkill categoryLevelSkill) {
         this.agentExecutor = agentExecutor;
+        this.agentFactory = agentFactory;
         this.vectorClient = vectorClient;
+        this.categoryLevelSkill = categoryLevelSkill;
     }
 
     /**
@@ -59,8 +68,13 @@ public class TaggingService {
                                              String contentText, int requiredTagCount) {
         log.info("[Tagging] start contentId={} type={}", contentId, contentType);
 
-        // 1. 调用 Agent 抽取标签（框架自动处理 trace/评测/优化）
-        String prompt = buildTaggingPrompt(contentText, contentType, requiredTagCount);
+        // 1. 渲染提示词模板（从 application.yml 配置读取）
+        Map<String, Object> variables = Map.of(
+                "contentType", contentType,
+                "contentText", contentText,
+                "requiredTagCount", requiredTagCount
+        );
+        String prompt = agentFactory.renderPrompt("tagger", variables);
         ChatMessage input = ChatMessage.user(prompt);
         AgentContext context = AgentContext.builder()
                 .sessionId(UUID.randomUUID().toString())
@@ -110,30 +124,6 @@ public class TaggingService {
 
     // ========== 业务私有方法 ==========
 
-    private String buildTaggingPrompt(String contentText, String contentType, int requiredTagCount) {
-        return """
-                请分析以下%s内容，抽取语义标签。
-                
-                内容：
-                %s
-                
-                要求：
-                1. 必须抽取恰好 %d 个最能代表内容语义的标签（不多不少）
-                2. 每个标签包含：
-                   - name: 标签名称
-                   - category: 类目（视觉风格/情感氛围/场景用途/材质工艺/颜色配色/主题元素）
-                   - confidence: 置信度（0-1）
-                   - desc: 标签介绍（一句话描述该标签的语义含义）
-                   - keywords: 关键词（3-5个，用/分隔，用于搜索匹配）
-                3. 严格按以下格式输出，每行一个标签：
-                [TAG] name=标签名称, category=类目, confidence=置信度, desc=标签介绍, keywords=关键词1/关键词2/关键词3
-                
-                示例：
-                [TAG] name=复古胶片风, category=视觉风格, confidence=0.95, desc=模拟传统胶片相机的色彩质感和颗粒感, keywords=胶片/复古/颗粒感/怀旧/相机
-                [TAG] name=温暖治愈, category=情感氛围, confidence=0.88, desc=给人温暖舒适、心灵治愈的感觉, keywords=温暖/治愈/舒适/温馨
-                """.formatted(contentType, contentText, requiredTagCount);
-    }
-
     private List<TagInfo> parseTags(String llmOutput, String contentId) {
         List<TagInfo> tags = new ArrayList<>();
         Matcher matcher = TAG_PATTERN.matcher(llmOutput);
@@ -154,12 +144,22 @@ public class TaggingService {
         return tags;
     }
 
+    /**
+     * 使用 CategoryLevelSkill 推断标签层级。
+     */
     private int inferLevel(String category) {
-        return switch (category) {
-            case "视觉风格", "情感氛围" -> 1;
-            case "场景用途", "材质工艺" -> 2;
-            default -> 3;
-        };
+        SkillResult result = categoryLevelSkill.execute(new SkillContext(
+                categoryLevelSkill.name(),
+                category,
+                null,
+                Map.of("category", category)
+        ));
+        try {
+            return Integer.parseInt(result.output());
+        } catch (NumberFormatException e) {
+            log.warn("[Tagging] CategoryLevelSkill 返回无效值: {}，使用默认层级 3", result.output());
+            return 3;
+        }
     }
 
     private List<Float> generateEmbedding(String text) {

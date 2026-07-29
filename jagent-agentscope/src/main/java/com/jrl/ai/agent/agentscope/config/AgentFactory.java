@@ -239,4 +239,32 @@ public class AgentFactory implements AgentRegistry {
     public Collection<String> allAgentKeys() {
         return properties.getAgents().keySet();
     }
+
+    /**
+     * 渲染指定 Agent 的用户提示词模板。
+     *
+     * <p>如果 Agent 配置了 {@code user-prompt-template}，则用变量替换占位符后返回；
+     * 否则返回 null，业务层需自行构建用户消息。
+     *
+     * @param agentKey  Agent 标识
+     * @param variables 变量映射（key 为占位符名称，如 "contentText"）
+     * @return 渲染后的提示词，若无模板则返回 null
+     */
+    public String renderPrompt(String agentKey, Map<String, Object> variables) {
+        JAgentProperties.AgentConfig config = properties.getAgents().get(agentKey);
+        if (config == null) {
+            throw new IllegalArgumentException("未找到 Agent 配置: " + agentKey);
+        }
+        return config.renderUserPrompt(variables);
+    }
+
+    /**
+     * 获取指定 Agent 的配置。
+     *
+     * @param agentKey Agent 标识
+     * @return Agent 配置
+     */
+    public JAgentProperties.AgentConfig getAgentConfig(String agentKey) {
+        return properties.getAgents().get(agentKey);
+    }
 }
