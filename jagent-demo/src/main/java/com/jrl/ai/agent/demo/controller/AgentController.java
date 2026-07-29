@@ -2,9 +2,6 @@ package com.jrl.ai.agent.demo.controller;
 
 import com.jrl.ai.agent.core.task.AgentResponse;
 import com.jrl.ai.agent.demo.service.AgentService;
-import io.agentscope.core.event.AgentEvent;
-import io.agentscope.core.event.AgentEventType;
-import io.agentscope.core.event.TextBlockDeltaEvent;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
@@ -60,15 +57,7 @@ public class AgentController {
         String sid = sessionId != null ? sessionId : UUID.randomUUID().toString();
         String uid = userId != null ? userId : "anonymous";
 
-        return agentService.stream(agentKey, text, sid, uid)
-                .filter(event -> event.getType() == AgentEventType.TEXT_BLOCK_DELTA)
-                .map(event -> {
-                    if (event instanceof TextBlockDeltaEvent delta) {
-                        return delta.getDelta();
-                    }
-                    return "";
-                })
-                .filter(s -> !s.isEmpty());
+        return agentService.stream(agentKey, text, sid, uid);
     }
 
     /**
