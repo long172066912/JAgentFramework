@@ -1,6 +1,7 @@
 package com.jrl.ai.agent.agentscope.adapter;
 
-import com.jrl.ai.agent.core.agent.Agent;
+import com.jrl.ai.agent.agentscope.agent.StreamAgentInterceptor;
+import com.jrl.ai.agent.agentscope.agent.StreamingAgent;
 import com.jrl.ai.agent.core.agent.AgentInterceptor;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.io.ChatMessage;
@@ -8,9 +9,12 @@ import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.core.task.TaskResult;
 import com.jrl.ai.agent.core.task.contract.TokenUsage;
 import io.agentscope.core.agent.RuntimeContext;
+import io.agentscope.core.event.AgentEventType;
+import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.model.ChatUsage;
 import io.agentscope.harness.agent.HarnessAgent;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import org.slf4j.Logger;
@@ -22,17 +26,17 @@ import java.util.Map;
 
 /**
  * AgentScope Agent 适配器 — 将 AgentScope {@link HarnessAgent}
- * 包装为 jagent-core 的 {@link Agent} 接口。
+ * 包装为 jagent-core 的 {@link StreamingAgent} 接口。
  *
- * <p>执行时自动完成消息格式转换和上下文转换，
- * 底层调用 HarnessAgent 的 {@code call()} 方法（阻塞等待结果）。
+ * <p>同步和流式执行都经过拦截器链包装，实现 AOP 统一抽象。
  */
-public class AgentScopeAgentAdapter implements Agent {
+public class AgentScopeAgentAdapter implements StreamingAgent {
 
     private static final Logger log = LoggerFactory.getLogger(AgentScopeAgentAdapter.class);
 
     private final HarnessAgent delegate;
     private final List<AgentInterceptor> interceptors;
+    private final List<StreamAgentInterceptor> streamInterceptors;
 
     /**
      * 创建适配器，包装 AgentScope HarnessAgent。
@@ -40,20 +44,24 @@ public class AgentScopeAgentAdapter implements Agent {
      * @param delegate AgentScope HarnessAgent 实例
      */
     public AgentScopeAgentAdapter(HarnessAgent delegate) {
-        this(delegate, List.of());
+        this(delegate, List.of(), List.of());
     }
 
     /**
      * 创建适配器，包装 AgentScope HarnessAgent，并指定拦截器链。
      *
-     * @param delegate     AgentScope HarnessAgent 实例
-     * @param interceptors Agent 拦截器列表
+     * @param delegate          AgentScope HarnessAgent 实例
+     * @param interceptors      同步拦截器列表
+     * @param streamInterceptors 流式拦截器列表
      */
-    public AgentScopeAgentAdapter(HarnessAgent delegate, List<AgentInterceptor> interceptors) {
+    public AgentScopeAgentAdapter(HarnessAgent delegate,
+                                   List<AgentInterceptor> interceptors,
+                                   List<StreamAgentInterceptor> streamInterceptors) {
         this.delegate = delegate;
         this.interceptors = interceptors != null ? new ArrayList<>(interceptors) : List.of();
-        log.info("AgentScopeAgentAdapter created: agentId={} interceptors={}",
-                delegate.getAgentId(), this.interceptors.size());
+        this.streamInterceptors = streamInterceptors != null ? new ArrayList<>(streamInterceptors) : List.of();
+        log.info("AgentScopeAgentAdapter created: agentId={} interceptors={} streamInterceptors={}",
+                delegate.getAgentId(), this.interceptors.size(), this.streamInterceptors.size());
     }
 
     @Override
@@ -66,21 +74,14 @@ public class AgentScopeAgentAdapter implements Agent {
         return delegate.getName();
     }
 
+    // ==================== 同步执行 ====================
+
     /**
-     * 同步执行 Agent。
-     *
-     * <p>将 jagent ChatMessage 转换为 AgentScope Msg，
-     * 将 AgentContext 转换为 RuntimeContext，
-     * 调用 HarnessAgent.call() 并阻塞等待结果。
-     *
-     * @param input   用户输入消息
-     * @param context 运行时上下文
-     * @return 任务执行结果
+     * 同步执行 Agent — 经过拦截器链包装。
      */
     @Override
     public TaskResult execute(ChatMessage input, AgentContext context) {
-        // 构建拦截器执行链（转换在链内部进行，确保使用拦截器修改后的值）
-        AgentInterceptor.ExecutionChain chain = buildChain();
+        AgentInterceptor.ExecutionChain chain = buildSyncChain();
 
         // 前置通知
         for (AgentInterceptor interceptor : interceptors) {
@@ -88,7 +89,7 @@ public class AgentScopeAgentAdapter implements Agent {
         }
 
         try {
-            // 环绕执行（最外层拦截器先执行）
+            // 环绕执行
             TaskResult result = executeWithAround(input, context, chain, 0);
 
             // 后置通知
@@ -96,12 +97,11 @@ public class AgentScopeAgentAdapter implements Agent {
                 interceptor.afterExecute(this, input, context, result);
             }
 
-            // 自动合并拦截器产生的额外步骤（如评测步骤）到主链路
+            // 自动合并拦截器产生的额外步骤
             result = enrichTraceWithInterceptorSteps(result, context);
 
             return result;
         } catch (Exception e) {
-            // 异常通知
             for (AgentInterceptor interceptor : interceptors) {
                 interceptor.onError(this, input, context, e);
             }
@@ -109,17 +109,8 @@ public class AgentScopeAgentAdapter implements Agent {
         }
     }
 
-    /**
-     * 递归执行环绕拦截器链。
-     *
-     * @param input   用户输入消息
-     * @param context 运行时上下文
-     * @param chain   底层执行链
-     * @param index   当前拦截器索引
-     * @return 任务执行结果
-     */
     private TaskResult executeWithAround(ChatMessage input, AgentContext context,
-                                         AgentInterceptor.ExecutionChain chain, int index) {
+                                          AgentInterceptor.ExecutionChain chain, int index) {
         if (index >= interceptors.size()) {
             return chain.proceed(input, context);
         }
@@ -127,16 +118,8 @@ public class AgentScopeAgentAdapter implements Agent {
                 (i, c) -> executeWithAround(i, c, chain, index + 1));
     }
 
-    /**
-     * 构建底层执行链（实际调用 AgentScope）。
-     *
-     * <p>转换在链内部进行，确保使用拦截器修改后的 input 和 context。
-     *
-     * @return 执行链，调用时执行 AgentScope 实际推理
-     */
-    private AgentInterceptor.ExecutionChain buildChain() {
+    private AgentInterceptor.ExecutionChain buildSyncChain() {
         return (input, context) -> {
-            // 在链内部转换消息和上下文，确保使用拦截器修改后的值
             Msg asMsg = MessageConverter.toAgentScope(input);
             RuntimeContext asCtx = ContextConverter.toAgentScope(context);
             
@@ -174,33 +157,61 @@ public class AgentScopeAgentAdapter implements Agent {
         };
     }
 
+    // ==================== 流式执行 ====================
+
+    /**
+     * 流式执行 Agent — 经过流式拦截器链包装。
+     */
     @Override
-    public boolean supportsStreaming() {
-        return true; // HarnessAgent 原生支持 streamEvents()
+    public Flux<String> stream(ChatMessage input, AgentContext context) {
+        StreamAgentInterceptor.StreamExecutionChain chain = buildStreamChain();
+        return streamWithAround(input, context, chain, 0);
+    }
+
+    private Flux<String> streamWithAround(ChatMessage input, AgentContext context,
+                                           StreamAgentInterceptor.StreamExecutionChain chain, int index) {
+        if (index >= streamInterceptors.size()) {
+            return chain.proceed(input, context);
+        }
+        return streamInterceptors.get(index).aroundStream(this, input, context,
+                (i, c) -> streamWithAround(i, c, chain, index + 1));
+    }
+
+    private StreamAgentInterceptor.StreamExecutionChain buildStreamChain() {
+        return (input, context) -> {
+            Msg asMsg = MessageConverter.toAgentScope(input);
+            RuntimeContext asCtx = ContextConverter.toAgentScope(context);
+
+            return delegate.streamEvents(asMsg, asCtx)
+                    .filter(event -> event.getType() == AgentEventType.TEXT_BLOCK_DELTA)
+                    .map(event -> {
+                        if (event instanceof TextBlockDeltaEvent delta) {
+                            return delta.getDelta();
+                        }
+                        return "";
+                    })
+                    .filter(s -> !s.isEmpty());
+        };
+    }
+
+    /**
+     * 获取流式拦截器列表。
+     */
+    public List<StreamAgentInterceptor> getStreamInterceptors() {
+        return streamInterceptors;
     }
 
     /**
      * 获取底层 AgentScope HarnessAgent 实例。
-     *
-     * @return HarnessAgent
      */
     public HarnessAgent getDelegate() {
         return delegate;
     }
 
-    /**
-     * 将拦截器产生的额外步骤（如评测步骤）自动合并到主链路中。
-     *
-     * <p>拦截器（如 EvaluationInterceptor）在执行过程中会将额外步骤存储到上下文中，
-     * 此方法在 Agent 执行完成后自动将这些步骤合并到 TaskResult 的链路中。
-     *
-     * @param result  原始任务结果
-     * @param context 运行时上下文
-     * @return 合并了拦截器步骤的新任务结果
-     */
+    // ==================== 辅助方法 ====================
+
     @SuppressWarnings("unchecked")
     private TaskResult enrichTraceWithInterceptorSteps(TaskResult result, AgentContext context) {
-        // 从上下文中获取评测步骤
         List<ExecutionTrace.Step> evalSteps = context.<List<ExecutionTrace.Step>>get("jagent.evaluation.steps").orElse(null);
         Long evalTime = context.<Long>get("jagent.evaluation.time").orElse(0L);
 
@@ -208,7 +219,6 @@ public class AgentScopeAgentAdapter implements Agent {
             return result;
         }
 
-        // 合并步骤到主链路
         ExecutionTrace originalTrace = result.trace();
         List<ExecutionTrace.Step> allSteps = new ArrayList<>();
         if (originalTrace != null) {
@@ -219,7 +229,6 @@ public class AgentScopeAgentAdapter implements Agent {
         long totalTime = (originalTrace != null ? originalTrace.totalTime() : 0) + evalTime;
         ExecutionTrace enrichedTrace = new ExecutionTrace(List.copyOf(allSteps), totalTime);
 
-        // 返回带有新链路的结果
         return result.withTrace(enrichedTrace);
     }
 }

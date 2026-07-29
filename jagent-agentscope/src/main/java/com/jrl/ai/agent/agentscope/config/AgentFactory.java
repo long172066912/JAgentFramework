@@ -1,6 +1,7 @@
 package com.jrl.ai.agent.agentscope.config;
 
 import com.jrl.ai.agent.agentscope.adapter.AgentScopeAgentAdapter;
+import com.jrl.ai.agent.agentscope.agent.StreamAgentInterceptor;
 import com.jrl.ai.agent.agentscope.model.OpenAICompatibleModel;
 import com.jrl.ai.agent.agentscope.skill.SkillToolAdapter;
 import com.jrl.ai.agent.core.agent.Agent;
@@ -34,6 +35,7 @@ public class AgentFactory implements AgentRegistry {
 
     private final JAgentProperties properties;
     private final List<AgentInterceptor> interceptors;
+    private final List<StreamAgentInterceptor> streamInterceptors;
     private final SkillRegistry skillRegistry;
     private final ConcurrentHashMap<String, Agent> agentCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, HarnessAgent> harnessCache = new ConcurrentHashMap<>();
@@ -44,7 +46,7 @@ public class AgentFactory implements AgentRegistry {
      * @param properties JAgent 配置属性
      */
     public AgentFactory(JAgentProperties properties) {
-        this(properties, List.of(), null);
+        this(properties, List.of(), List.of(), null);
     }
 
     /**
@@ -54,7 +56,7 @@ public class AgentFactory implements AgentRegistry {
      * @param interceptors Agent 拦截器列表（会被复制为不可变副本）
      */
     public AgentFactory(JAgentProperties properties, List<AgentInterceptor> interceptors) {
-        this(properties, interceptors, null);
+        this(properties, interceptors, List.of(), null);
     }
 
     /**
@@ -65,8 +67,24 @@ public class AgentFactory implements AgentRegistry {
      * @param skillRegistry Skill 注册表（可选，为 null 时不挂载工具）
      */
     public AgentFactory(JAgentProperties properties, List<AgentInterceptor> interceptors, SkillRegistry skillRegistry) {
+        this(properties, interceptors, List.of(), skillRegistry);
+    }
+
+    /**
+     * 创建带同步和流式拦截器的 Agent 工厂。
+     *
+     * @param properties         JAgent 配置属性
+     * @param interceptors       同步拦截器列表
+     * @param streamInterceptors 流式拦截器列表
+     * @param skillRegistry      Skill 注册表（可选）
+     */
+    public AgentFactory(JAgentProperties properties,
+                         List<AgentInterceptor> interceptors,
+                         List<StreamAgentInterceptor> streamInterceptors,
+                         SkillRegistry skillRegistry) {
         this.properties = properties;
         this.interceptors = interceptors != null ? List.copyOf(interceptors) : List.of();
+        this.streamInterceptors = streamInterceptors != null ? List.copyOf(streamInterceptors) : List.of();
         this.skillRegistry = skillRegistry;
     }
 
@@ -79,7 +97,7 @@ public class AgentFactory implements AgentRegistry {
     public Agent getAgent(String agentKey) {
         return agentCache.computeIfAbsent(agentKey, key -> {
             HarnessAgent harness = getHarnessAgent(key);
-            return new AgentScopeAgentAdapter(harness, interceptors);
+            return new AgentScopeAgentAdapter(harness, interceptors, streamInterceptors);
         });
     }
 

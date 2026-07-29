@@ -1,5 +1,6 @@
 package com.jrl.ai.agent.agentscope.config;
 
+import com.jrl.ai.agent.agentscope.agent.StreamingAgent;
 import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.evaluation.EvaluationResult;
@@ -10,9 +11,6 @@ import com.jrl.ai.agent.core.io.ChatMessage;
 import com.jrl.ai.agent.core.task.AgentResponse;
 import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.core.task.TaskResult;
-import io.agentscope.core.event.AgentEventType;
-import io.agentscope.core.event.TextBlockDeltaEvent;
-import io.agentscope.core.message.UserMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
@@ -27,7 +25,7 @@ import java.util.function.Function;
  *
  * <ul>
  *   <li>同步链路：{@code execute()} → Agent.execute() → 拦截器链自动生效</li>
- *   <li>流式链路：{@code stream()} → harness.streamEvents() → 返回文本增量流</li>
+ *   <li>流式链路：{@code stream()} → StreamingAgent.stream() → 流式拦截器链自动生效</li>
  *   <li>责任链：{@code executeChain()} → 多个 Agent 顺序执行，每个都走拦截器</li>
  * </ul>
  *
@@ -159,27 +157,29 @@ public class AgentExecutor {
     // ==================== 流式通道 ====================
 
     /**
-     * 流式执行 Agent — 返回文本增量流。
+     * 流式执行 Agent — 返回文本增量流，经过流式拦截器链包装。
      *
-     * <p>注意：流式链路绕过拦截器，评测需由调用方自行处理。
+     * <p>评测由流式拦截器（AOP）自动处理。
      *
      * @param agentKey  Agent 标识
      * @param text      用户输入文本
-     * @param sessionId 会话 ID（供调用方评测用）
+     * @param sessionId 会话 ID
      * @param userId    用户 ID
      * @return 文本增量流
      */
     public Flux<String> stream(String agentKey, String text, String sessionId, String userId) {
-        return agentFactory.getHarnessAgent(agentKey)
-                .streamEvents(new UserMessage(text))
-                .filter(event -> event.getType() == AgentEventType.TEXT_BLOCK_DELTA)
-                .map(event -> {
-                    if (event instanceof TextBlockDeltaEvent delta) {
-                        return delta.getDelta();
-                    }
-                    return "";
-                })
-                .filter(s -> !s.isEmpty());
+        Agent agent = agentFactory.getAgent(agentKey);
+        if (!(agent instanceof StreamingAgent streamingAgent)) {
+            return Flux.error(new UnsupportedOperationException(
+                    "Agent " + agentKey + " does not support streaming"));
+        }
+
+        AgentContext context = AgentContext.builder()
+                .sessionId(sessionId)
+                .userId(userId)
+                .build();
+
+        return streamingAgent.stream(ChatMessage.user(text), context);
     }
 
     // ==================== 责任链执行 ====================
