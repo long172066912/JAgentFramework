@@ -118,9 +118,12 @@ public class AgentFactory implements AgentRegistry {
             }
             log.info("创建 Agent [{}] model={} workspace={}", key, config.getModel(), properties.getWorkspace());
 
+            String agentName = config.getName() != null ? config.getName() : key;
+            String agentId = config.getName() != null ? agentName + "(" + key + ")" : key;
+
             HarnessAgent.Builder builder = HarnessAgent.builder()
-                    .agentId(key)
-                    .name(config.getName() != null ? config.getName() : key)
+                    .agentId(agentId)
+                    .name(agentName)
                     .sysPrompt(config.getSysPrompt())
                     .workspace(Path.of(properties.getWorkspace()))
                     .maxIters(config.getMaxIters())
