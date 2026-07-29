@@ -1,57 +1,63 @@
 package com.jrl.ai.agent.demo.service;
 
-import com.jrl.ai.agent.agentscope.adapter.MessageConverter;
+import com.jrl.ai.agent.agentscope.config.AgentExecutor;
 import com.jrl.ai.agent.agentscope.config.AgentFactory;
 import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.io.ChatMessage;
-import com.jrl.ai.agent.core.task.TaskResult;
+import com.jrl.ai.agent.core.task.AgentResponse;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
-import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.UserMessage;
 import io.agentscope.harness.agent.HarnessAgent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
-import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
 /**
- * Agent 业务服务 — 封装 Agent 调用逻辑，提供同步和流式两种调用方式。
+ * Agent 业务服务 — 使用 AgentExecutor 统一处理公共字段。
+ *
+ * <p>业务层只关心返回文本，trace/tokenUsage/evaluation/optimization 由框架自动处理。
  */
 @Service
 public class AgentService {
 
     private static final Logger log = LoggerFactory.getLogger(AgentService.class);
 
+    private final AgentExecutor agentExecutor;
     private final AgentFactory agentFactory;
 
-    public AgentService(AgentFactory agentFactory) {
+    public AgentService(AgentExecutor agentExecutor, AgentFactory agentFactory) {
+        this.agentExecutor = agentExecutor;
         this.agentFactory = agentFactory;
     }
 
     /**
-     * 同步对话 — 调用指定 Agent 并返回完整结果。
+     * 同步对话 — 返回 AgentResponse，业务数据为响应文本。
      *
      * @param agentKey  Agent 标识
      * @param text      用户输入文本
      * @param sessionId 会话 ID
      * @param userId    用户 ID
-     * @return 任务结果
+     * @return AgentResponse，data 为 Agent 响应文本
      */
-    public TaskResult chat(String agentKey, String text, String sessionId, String userId) {
-        Agent agent = agentFactory.getAgent(agentKey);
+    public AgentResponse<String> chat(String agentKey, String text, String sessionId, String userId) {
         AgentContext context = AgentContext.builder()
                 .sessionId(sessionId)
                 .userId(userId)
                 .build();
-        return agent.execute(ChatMessage.user(text), context);
+
+        return agentExecutor.execute(
+                agentKey,
+                ChatMessage.user(text),
+                context,
+                taskResult -> (String) taskResult.result().getOrDefault("response", "")
+        );
     }
 
     /**

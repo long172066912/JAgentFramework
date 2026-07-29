@@ -1,7 +1,7 @@
 package com.jrl.ai.agent.demo.controller;
 
+import com.jrl.ai.agent.core.task.AgentResponse;
 import com.jrl.ai.agent.demo.service.AgentService;
-import com.jrl.ai.agent.core.task.TaskResult;
 import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.AgentEventType;
 import io.agentscope.core.event.TextBlockDeltaEvent;
@@ -30,24 +30,14 @@ public class AgentController {
     /**
      * 同步对话端点 — 一次性返回完整结果。
      *
-     * @param request 对话请求（agentKey + text）
-     * @return 对话结果
+     * <p>直接返回 AgentResponse<String>，框架自动序列化公共字段。
      */
     @PostMapping("/chat")
-    public Mono<Map<String, Object>> chat(@RequestBody ChatRequest request) {
+    public Mono<AgentResponse<String>> chat(@RequestBody ChatRequest request) {
         return Mono.fromCallable(() -> {
             String sessionId = request.sessionId() != null ? request.sessionId() : UUID.randomUUID().toString();
             String userId = request.userId() != null ? request.userId() : "anonymous";
-
-            TaskResult result = agentService.chat(request.agentKey(), request.text(), sessionId, userId);
-
-            return Map.<String, Object>of(
-                    "success", result.isSuccess(),
-                    "response", result.result().getOrDefault("response", ""),
-                    "model", result.result().getOrDefault("model", ""),
-                    "sessionId", sessionId,
-                    "durationMs", result.durationMs()
-            );
+            return agentService.chat(request.agentKey(), request.text(), sessionId, userId);
         }).subscribeOn(Schedulers.boundedElastic());
     }
 
