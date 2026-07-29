@@ -27,6 +27,9 @@
 | **五维评测系统** | 智能/性能/可靠性/安全/体验五维评估，支持规则评测 + LLM 评测 + 自定义 Agent 评测 |
 | **置信度阈值与自动优化** | 可配置置信度阈值，低于阈值时自动触发 LLM 优化分析，生成 Prompt / Skill / 模型 / 编排四维优化建议 |
 | **评测步骤自动追踪** | 评测步骤自动合并到 Agent 主链路 trace，含评测模型信息，全程可观测 |
+| **AgentResponse 统一响应** | `AgentResponse<T>` 封装业务数据 + trace/tokenUsage/evaluation/optimization 公共字段，Controller 一行返回 |
+| **AgentExecutor 通用执行器** | 自动采集 trace、tokenUsage、评测查询、优化建议，业务只需提供数据提取逻辑 |
+| **Agent ID 可读化** | Agent ID 自动包含 name（格式 `name(key)`），日志/trace 中一眼可辨 |
 
 ---
 
@@ -135,7 +138,7 @@ dependencyResolutionManagement {
 ```groovy
 // Gradle
 dependencies {
-    implementation 'com.jrl.ai:jagent-agentscope:0.3.0'
+    implementation 'com.jrl.ai:jagent-agentscope:0.4.0'
     // 如果使用 DashScope 模型
     implementation 'io.agentscope:agentscope-extensions-model-dashscope:2.0.0'
 }
@@ -146,7 +149,7 @@ dependencies {
 <dependency>
     <groupId>com.jrl.ai</groupId>
     <artifactId>jagent-agentscope</artifactId>
-    <version>0.3.0</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
@@ -202,23 +205,60 @@ public class MyApplication {
 
 ### 5. 调用 Agent
 
+#### 方式一：使用 AgentExecutor（推荐）
+
+`AgentExecutor` 自动处理 trace 采集、tokenUsage 统计、评测查询、优化建议查询，业务只需提供数据提取逻辑：
+
 ```java
 @RestController
 public class ChatController {
 
-    private final AgentFactory agentFactory;
+    private final AgentExecutor agentExecutor;
 
-    public ChatController(AgentFactory agentFactory) {
-        this.agentFactory = agentFactory;
+    public ChatController(AgentExecutor agentExecutor) {
+        this.agentExecutor = agentExecutor;
     }
 
     @GetMapping("/chat")
-    public String chat(@RequestParam String text) {
-        Agent agent = agentFactory.getAgent("translator");
-        TaskResult result = agent.execute(ChatMessage.user(text), AgentContext.builder().build());
-        return (String) result.result().get("response");
+    public Mono<AgentResponse<String>> chat(@RequestParam String text) {
+        ChatMessage input = ChatMessage.user(text);
+        AgentContext context = AgentContext.builder().sessionId("s1").build();
+
+        // AgentExecutor 自动采集 trace/tokenUsage/evaluation/optimization
+        return Mono.fromCallable(() ->
+            agentExecutor.execute("translator", input, context,
+                taskResult -> (String) taskResult.result().get("response"))
+        ).subscribeOn(Schedulers.boundedElastic());
     }
 }
+```
+
+`AgentResponse<T>` 统一封装业务数据与框架公共字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `data` | `T` | 业务数据（由 mapper 回调填充） |
+| `trace` | `ExecutionTrace` | 全链路追踪（自动采集） |
+| `tokenUsage` | `TokenUsage` | Token 消耗统计（自动采集） |
+| `evaluation` | `EvaluationResult` | 评测结果（自动查询） |
+| `optimization` | `OptimizationReport` | 优化建议（低分时非 null） |
+| `processTime` | `long` | 处理耗时 ms |
+
+支持 `map()` 链式转换，公共字段自动保留：
+
+```java
+// 业务后处理（如向量生成），trace/tokenUsage/evaluation 全部保留
+AgentResponse<TaggingResult> response = agentExecutor
+    .execute("tagger", input, ctx, tr -> parseTags(tr))
+    .map(tags -> new TaggingResult(tags, generateEmbedding(tags)));
+```
+
+#### 方式二：直接调用 Agent
+
+```java
+Agent agent = agentFactory.getAgent("translator");
+TaskResult result = agent.execute(ChatMessage.user(text), AgentContext.builder().build());
+String response = (String) result.result().get("response");
 ```
 
 ---
@@ -331,6 +371,41 @@ jagent:
 
 评测步骤（`EVAL_RULEBASEDEVALUATOR`、`EVAL_LLMJUDGEEVALUATOR`、`COMPOSITE_SCORE`）会自动合并到 Agent 主链路 trace 中，评测步骤详情包含评测模型信息，全程可观测。
 
+### AgentResponse 统一响应范式（v0.4.0 新增）
+
+`AgentResponse<T>` 将业务数据与框架公共字段统一封装，Controller 直接返回即可：
+
+```java
+@PostMapping("/chat")
+public Mono<AgentResponse<String>> chat(@RequestBody ChatRequest request) {
+    return Mono.fromCallable(() -> {
+        ChatMessage input = ChatMessage.user(request.text());
+        AgentContext ctx = AgentContext.builder().sessionId(request.sessionId()).build();
+        return agentExecutor.execute("translator", input, ctx,
+            tr -> (String) tr.result().get("response"));
+    }).subscribeOn(Schedulers.boundedElastic());
+}
+```
+
+框架自动处理：
+- **trace 采集** — Agent 执行 + 评测步骤全链路追踪
+- **tokenUsage 统计** — 自动从模型响应中提取
+- **评测查询** — 自动查询最新评测结果
+- **优化建议** — 低分时自动附带优化建议
+
+### Agent ID 可读化（v0.4.0 新增）
+
+Agent ID 自动包含配置中的 `name`，格式为 `name(key)`，日志排查时一眼可辨：
+
+```
+# 日志输出示例
+[AgentExecutor] agent=tagger completed, processTime=1234ms
+[OptimizationStore] save agentId=智能打标助手(tagger), suggestions=3
+[Evaluation] agent=翻译助手(translator) composite=0.85 dims=5
+```
+
+未配置 `name` 的 Agent，ID 仍为原始 key，向后兼容。
+
 ---
 
 ## 模块详解
@@ -423,7 +498,7 @@ List<Skill> ranked = registry.rank("tagger");   // 按评分降序排列所有 S
 | `storage` | `KVStore` | KV 存储抽象 |
 | `memory` | `MemoryStore` / `MemoryInterceptor` | 记忆存储 + 拦截 |
 | `monitor` | `MetricsInterceptor` | Micrometer 指标采集（同时适配 Agent/Skill/Memory 三层） |
-| `task` | `Task` / `TaskResult` / `ExecutionTrace` | 任务契约 + 执行追踪 |
+| `task` | `Task` / `TaskResult` / `ExecutionTrace` / `AgentResponse` | 任务契约 + 执行追踪 + 统一响应 |
 | `task/contract` | `TaskRequest` / `TaskResponse` / `TokenUsage` | 传输无关的标准化协议 |
 | `evaluation` | `Evaluator` / `EvaluationStore` / `CompositeScorer` | 五维评测：接口 + 数据模型 |
 
@@ -448,7 +523,9 @@ List<Skill> ranked = registry.rank("tagger");   // 按评分降序排列所有 S
 |------|------|
 | `JAgentAutoConfiguration` | Spring Boot 自动装配入口，注册所有 Bean |
 | `JAgentProperties` | YAML 配置绑定（`jagent.*` 前缀） |
-| `AgentFactory` | Agent 工厂：懒创建 + 缓存，自动挂载 Skill 到 Toolkit |
+| `AgentFactory` | Agent 工厂：懒创建 + 缓存，自动挂载 Skill 到 Toolkit，Agent ID 自动包含 name |
+| `AgentExecutor` | Agent 通用执行器：自动采集 trace/tokenUsage/评测/优化建议，业务只提供数据提取逻辑 |
+| `AgentResponseHelper` | API 响应构建助手：标准化 Controller 返回，统一序列化公共字段 |
 
 **自动装配的 Bean 清单：**
 
@@ -472,6 +549,8 @@ List<Skill> ranked = registry.rank("tagger");   // 按评分降序排列所有 S
 | `EvaluationInterceptor` | `EvaluationInterceptor` | `jagent.evaluation.enabled=true` |
 | `OptimizationReportStore` | `JsonFileOptimizationReportStore` | `jagent.evaluation.enabled=true` |
 | `OptimizationAnalyzer` | `RuleBasedOptimizationAnalyzer` | `jagent.evaluation.optimization.enabled=true` |
+| `AgentExecutor` | `AgentExecutor` | 始终 |
+| `AgentResponseHelper` | `AgentResponseHelper` | `@ConditionalOnMissingBean` |
 | `OptimizationAnalyzer` | `LLMBasedOptimizationAnalyzer` | `jagent.evaluation.optimization.llm-enabled=true` |
 
 #### skill 包 — Skill 桥接
@@ -669,11 +748,11 @@ export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
 
 ### 发布流程
 
-1. **创建 GitHub Release**：在 GitHub 仓库创建 Release 标签（如 `v0.3.0`），GitHub Actions 会自动发布到 GitHub Packages
+1. **创建 GitHub Release**：在 GitHub 仓库创建 Release 标签（如 `v0.4.0`），GitHub Actions 会自动发布到 GitHub Packages
 2. **手动发布**：
    ```bash
    # 修改版本号
-   # build.gradle: version = '0.3.0'
+   # build.gradle: version = '0.4.0'
    
    # 发布
    ./gradlew publishAllPublicationsToGitHubPackagesRepository
