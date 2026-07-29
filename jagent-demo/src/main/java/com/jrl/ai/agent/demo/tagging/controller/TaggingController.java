@@ -1,7 +1,6 @@
 package com.jrl.ai.agent.demo.tagging.controller;
 
-import com.jrl.ai.agent.core.evaluation.EvaluationResult;
-import com.jrl.ai.agent.core.task.ExecutionTrace;
+import com.jrl.ai.agent.agentscope.config.AgentResponseHelper;
 import com.jrl.ai.agent.demo.tagging.client.MockVectorStorageClient;
 import com.jrl.ai.agent.demo.tagging.model.*;
 import com.jrl.ai.agent.demo.tagging.mq.CallbackProducer;
@@ -77,41 +76,11 @@ public class TaggingController {
                                     "keywords", t.keywords() != null ? t.keywords() : List.of()
                             ))
                             .toList() : List.of(),
-                    "tokenUsage", result.usage() != null ? Map.of(
-                            "model", result.usage().modelId() != null ? result.usage().modelId() : "",
-                            "promptTokens", result.usage().promptTokens(),
-                            "completionTokens", result.usage().completionTokens(),
-                            "totalTokens", result.usage().totalTokens()
-                    ) : Map.of(),
-                    "trace", result.trace() != null ? Map.of(
-                            "steps", result.trace().steps().stream()
-                                    .map(s -> Map.<String, Object>of(
-                                            "name", s.name() != null ? s.name() : "",
-                                            "duration", s.duration(),
-                                            "detail", s.detail() != null ? s.detail() : ""
-                                    ))
-                                    .toList(),
-                            "totalTime", result.trace().totalTime()
-                    ) : Map.of(),
+                    "tokenUsage", AgentResponseHelper.toTokenUsageMap(result.usage()),
+                    "trace", AgentResponseHelper.toTraceMap(result.trace()),
                     "processTime", result.processTime(),
-                    "evaluation", result.evaluation() != null ? Map.of(
-                            "evalId", result.evaluation().evalId(),
-                            "compositeScore", result.evaluation().compositeScore(),
-                            "dimensions", result.evaluation().scores()
-                    ) : Map.of(),
-                    "optimization", result.optimization() != null ? Map.of(
-                            "agentId", result.optimization().agentId(),
-                            "compositeScore", result.optimization().compositeScore(),
-                            "suggestions", result.optimization().suggestions().stream()
-                                    .map(s -> Map.<String, Object>of(
-                                            "category", s.category().name(),
-                                            "priority", s.priority().name(),
-                                            "title", s.title(),
-                                            "content", s.content(),
-                                            "reason", s.reason()
-                                    ))
-                                    .toList()
-                    ) : Map.of(),
+                    "evaluation", AgentResponseHelper.toEvaluationMap(result.evaluation()),
+                    "optimization", AgentResponseHelper.toOptimizationMap(result.optimization()),
                     "error", result.error() != null ? result.error() : ""
             );
         }).subscribeOn(Schedulers.boundedElastic());

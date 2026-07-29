@@ -362,4 +362,25 @@ public class JAgentAutoConfiguration {
                 optimizationAnalyzer.getIfAvailable(), optimizationReportStore.getIfAvailable(),
                 confidenceThreshold);
     }
+
+    /**
+     * 注册 Agent 通用响应构建器。
+     *
+     * <p>提供 trace、tokenUsage、evaluation、optimization 的标准化序列化与查询能力，
+     * 任何 Agent 服务均可注入此 Bean 构建统一 API 响应。
+     *
+     * @param evaluationStore        评测结果存储（可选）
+     * @param optimizationReportStore 优化报告存储（可选）
+     * @return AgentResponseHelper 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public AgentResponseHelper agentResponseHelper(
+            ObjectProvider<EvaluationStore> evaluationStore,
+            ObjectProvider<OptimizationReportStore> optimizationReportStore) {
+        return new AgentResponseHelper(
+                evaluationStore.getIfAvailable(),
+                optimizationReportStore.getIfAvailable()
+        );
+    }
 }

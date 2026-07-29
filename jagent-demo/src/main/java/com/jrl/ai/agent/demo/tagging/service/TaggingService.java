@@ -1,12 +1,11 @@
 package com.jrl.ai.agent.demo.tagging.service;
 
 import com.jrl.ai.agent.agentscope.config.AgentFactory;
+import com.jrl.ai.agent.agentscope.config.AgentResponseHelper;
 import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.evaluation.EvaluationResult;
-import com.jrl.ai.agent.core.evaluation.EvaluationStore;
 import com.jrl.ai.agent.core.evaluation.OptimizationReport;
-import com.jrl.ai.agent.core.evaluation.OptimizationReportStore;
 import com.jrl.ai.agent.core.io.ChatMessage;
 import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.core.task.TaskResult;
@@ -58,18 +57,14 @@ public class TaggingService {
 
     private final AgentFactory agentFactory;
     private final VectorStorageClient vectorClient;
-    private final EvaluationStore evaluationStore;
-    private final OptimizationReportStore optimizationReportStore;
+    private final AgentResponseHelper responseHelper;
 
     public TaggingService(AgentFactory agentFactory, VectorStorageClient vectorClient,
-                          @Autowired(required = false) EvaluationStore evaluationStore,
-                          @Autowired(required = false) OptimizationReportStore optimizationReportStore) {
+                          @Autowired(required = false) AgentResponseHelper responseHelper) {
         this.agentFactory = agentFactory;
         this.vectorClient = vectorClient;
-        this.evaluationStore = evaluationStore;
-        this.optimizationReportStore = optimizationReportStore;
-        log.info("[TaggingService] Initialized: evaluationStore={}, optimizationReportStore={}",
-                evaluationStore != null, optimizationReportStore != null);
+        this.responseHelper = responseHelper;
+        log.info("[TaggingService] Initialized: responseHelper={}", responseHelper != null);
     }
 
     /**
@@ -154,35 +149,15 @@ public class TaggingService {
             long processTime = System.currentTimeMillis() - start;
             log.info("[Tagging] done contentId={}, tags={}, time={}ms", contentId, tags.size(), processTime);
 
-            // 查询本次打标的评测结果（评测系统启用时自动触发）
+            // 查询评测结果和优化建议（通用逻辑委托给 AgentResponseHelper）
             EvaluationResult evaluation = null;
             OptimizationReport optimization = null;
-            if (evaluationStore != null) {
+            if (responseHelper != null) {
                 String actualAgentId = llmResult.agentId();
-                List<EvaluationResult> results = evaluationStore.findByAgent(actualAgentId, 1);
-                log.info("[Tagging] evaluation query: agentId={}, found={} results", actualAgentId, results.size());
-                if (!results.isEmpty()) {
-                    evaluation = results.getFirst();
-                    log.info("[Tagging] evaluation: evalId={} composite={}", evaluation.evalId(), evaluation.compositeScore());
-                    
-                    // 查询优化建议报告
-                    if (optimizationReportStore != null) {
-                        log.info("[Tagging] querying optimization reports for agentId={}", actualAgentId);
-                        List<OptimizationReport> reports = optimizationReportStore.findByAgent(actualAgentId, 1);
-                        log.info("[Tagging] optimization reports found: {}", reports.size());
-                        if (!reports.isEmpty()) {
-                            optimization = reports.getFirst();
-                            log.info("[Tagging] optimization: suggestions={}", optimization.suggestions().size());
-                        }
-                    } else {
-                        log.warn("[Tagging] optimizationReportStore is null");
-                    }
-                } else {
-                    log.warn("[Tagging] No evaluation result found for agentId={}. " +
-                            "Check if EvaluationInterceptor is registered and jagent.evaluation.enabled=true", actualAgentId);
+                evaluation = responseHelper.queryEvaluation(actualAgentId);
+                if (evaluation != null) {
+                    optimization = responseHelper.queryOptimization(actualAgentId);
                 }
-            } else {
-                log.warn("[Tagging] EvaluationStore is null - evaluation system not enabled");
             }
 
             ExecutionTrace trace = traceBuilder.build();
@@ -197,17 +172,10 @@ public class TaggingService {
             // 尝试获取评测结果（即使打标失败，Agent 执行时可能已触发评测）
             EvaluationResult evaluation = null;
             OptimizationReport optimization = null;
-            if (evaluationStore != null) {
-                List<EvaluationResult> results = evaluationStore.findByAgent("tagger", 1);
-                if (!results.isEmpty()) {
-                    evaluation = results.getFirst();
-                    // 查询优化建议报告
-                    if (optimizationReportStore != null) {
-                        List<OptimizationReport> reports = optimizationReportStore.findByAgent("tagger", 1);
-                        if (!reports.isEmpty()) {
-                            optimization = reports.getFirst();
-                        }
-                    }
+            if (responseHelper != null) {
+                evaluation = responseHelper.queryEvaluation("tagger");
+                if (evaluation != null) {
+                    optimization = responseHelper.queryOptimization("tagger");
                 }
             }
 
