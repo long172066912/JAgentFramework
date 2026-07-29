@@ -6,7 +6,6 @@ import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.io.ChatMessage;
 import com.jrl.ai.agent.core.task.AgentResponse;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -14,7 +13,7 @@ import java.util.Map;
 /**
  * Agent 业务服务 — 纯薄代理，所有执行逻辑由 AgentExecutor 统一处理。
  *
- * <p>同步/流式双通道，评测由拦截器（AOP）自动处理，业务层无需关心。
+ * <p>评测由拦截器（AOP）自动处理，业务层无需关心。
  */
 @Service
 public class AgentService {
@@ -48,21 +47,6 @@ public class AgentService {
                 context,
                 taskResult -> (String) taskResult.result().getOrDefault("response", "")
         );
-    }
-
-    /**
-     * 流式对话 — 返回文本增量流。
-     *
-     * <p>评测由流式拦截器自动处理。
-     *
-     * @param agentKey  Agent 标识
-     * @param text      用户输入文本
-     * @param sessionId 会话 ID
-     * @param userId    用户 ID
-     * @return 文本增量流
-     */
-    public Flux<String> stream(String agentKey, String text, String sessionId, String userId) {
-        return agentExecutor.stream(agentKey, text, sessionId, userId);
     }
 
     /**

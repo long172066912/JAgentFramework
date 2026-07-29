@@ -1,6 +1,5 @@
 package com.jrl.ai.agent.agentscope.config;
 
-import com.jrl.ai.agent.agentscope.agent.StreamingAgent;
 import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.evaluation.EvaluationResult;
@@ -13,19 +12,16 @@ import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.core.task.TaskResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import reactor.core.publisher.Flux;
-
 import java.util.List;
 import java.util.function.Function;
 
 /**
- * Agent 通用执行器 — 纯执行引擎，同步/流式/责任链三通道。
+ * Agent 通用执行器 — 纯执行引擎，同步/责任链双通道。
  *
  * <p>评测由拦截器（AOP）自动处理，AgentExecutor 不关心评测逻辑，只负责执行和查询结果。
  *
  * <ul>
  *   <li>同步链路：{@code execute()} → Agent.execute() → 拦截器链自动生效</li>
- *   <li>流式链路：{@code stream()} → StreamingAgent.stream() → 流式拦截器链自动生效</li>
  *   <li>责任链：{@code executeChain()} → 多个 Agent 顺序执行，每个都走拦截器</li>
  * </ul>
  *
@@ -36,9 +32,6 @@ import java.util.function.Function;
  *     "chat", input, context,
  *     taskResult -> (String) taskResult.result().get("response")
  * );
- *
- * // 流式执行
- * Flux<String> stream = agentExecutor.stream("chat", "你好", sessionId, userId);
  *
  * // 责任链执行
  * TaskResult result = agentExecutor.executeChain(
@@ -152,34 +145,6 @@ public class AgentExecutor {
             long processTime = System.currentTimeMillis() - start;
             return AgentResponse.failure(e.getMessage(), traceBuilder.build(), processTime);
         }
-    }
-
-    // ==================== 流式通道 ====================
-
-    /**
-     * 流式执行 Agent — 返回文本增量流，经过流式拦截器链包装。
-     *
-     * <p>评测由流式拦截器（AOP）自动处理。
-     *
-     * @param agentKey  Agent 标识
-     * @param text      用户输入文本
-     * @param sessionId 会话 ID
-     * @param userId    用户 ID
-     * @return 文本增量流
-     */
-    public Flux<String> stream(String agentKey, String text, String sessionId, String userId) {
-        Agent agent = agentFactory.getAgent(agentKey);
-        if (!(agent instanceof StreamingAgent streamingAgent)) {
-            return Flux.error(new UnsupportedOperationException(
-                    "Agent " + agentKey + " does not support streaming"));
-        }
-
-        AgentContext context = AgentContext.builder()
-                .sessionId(sessionId)
-                .userId(userId)
-                .build();
-
-        return streamingAgent.stream(ChatMessage.user(text), context);
     }
 
     // ==================== 责任链执行 ====================

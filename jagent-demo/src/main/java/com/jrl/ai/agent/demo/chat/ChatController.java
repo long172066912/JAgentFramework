@@ -6,9 +6,7 @@ import com.jrl.ai.agent.core.evaluation.EvaluationResult;
 import com.jrl.ai.agent.demo.service.AgentService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -18,7 +16,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 智能对话控制器 — 类 Kimi 的多轮对话，支持 SSE 流式输出。
+ * 智能对话控制器 — 类 Kimi 的多轮对话。
  *
  * <p>评测由 AgentService 链路内置处理，Controller 只负责 HTTP 协议适配。
  */
@@ -37,22 +35,6 @@ public class ChatController {
         this.agentService = agentService;
         this.agentFactory = agentFactory;
         this.evaluationStore = evaluationStore;
-    }
-
-    /**
-     * SSE 流式对话 — 实时推送文本增量。
-     *
-     * <p>评测在流结束后由 AgentService 自动触发，Controller 无需关心。
-     *
-     * @param request 对话请求（agentKey + text + sessionId）
-     * @return SSE 事件流
-     */
-    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> stream(@RequestBody StreamRequest request) {
-        String sid = request.sessionId() != null ? request.sessionId() : UUID.randomUUID().toString();
-        String uid = request.userId() != null ? request.userId() : "chat-user";
-        String agentKey = request.agentKey() != null ? request.agentKey() : "chat";
-        return agentService.stream(agentKey, request.text(), sid, uid);
     }
 
     /**
@@ -102,18 +84,4 @@ public class ChatController {
             return result;
         }).subscribeOn(Schedulers.boundedElastic());
     }
-
-    /**
-     * 流式对话请求体。
-     */
-    public record StreamRequest(
-            /** Agent 标识（可选，默认 "chat"） */
-            String agentKey,
-            /** 用户输入 */
-            String text,
-            /** 会话 ID（可选，不传则新建） */
-            String sessionId,
-            /** 用户 ID（可选） */
-            String userId
-    ) {}
 }

@@ -2,9 +2,7 @@ package com.jrl.ai.agent.demo.controller;
 
 import com.jrl.ai.agent.core.task.AgentResponse;
 import com.jrl.ai.agent.demo.service.AgentService;
-import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -12,7 +10,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Agent REST 端点 — 提供同步对话、SSE 流式输出和 Agent 列表查询。
+ * Agent REST 端点 — 提供同步对话和 Agent 列表查询。
  */
 @RestController
 @RequestMapping("/api/agent")
@@ -36,28 +34,6 @@ public class AgentController {
             String userId = request.userId() != null ? request.userId() : "anonymous";
             return agentService.chat(request.agentKey(), request.text(), sessionId, userId);
         }).subscribeOn(Schedulers.boundedElastic());
-    }
-
-    /**
-     * SSE 流式对话端点 — 实时推送文本增量。
-     *
-     * @param agentKey  Agent 标识
-     * @param text      用户输入
-     * @param sessionId 会话 ID（可选）
-     * @param userId    用户 ID（可选）
-     * @return SSE 事件流
-     */
-    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> stream(
-            @RequestParam String agentKey,
-            @RequestParam String text,
-            @RequestParam(required = false) String sessionId,
-            @RequestParam(required = false) String userId) {
-
-        String sid = sessionId != null ? sessionId : UUID.randomUUID().toString();
-        String uid = userId != null ? userId : "anonymous";
-
-        return agentService.stream(agentKey, text, sid, uid);
     }
 
     /**

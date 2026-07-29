@@ -1,7 +1,6 @@
 package com.jrl.ai.agent.agentscope.config;
 
 import com.jrl.ai.agent.agentscope.agent.AgentLifecycleManager;
-import com.jrl.ai.agent.agentscope.agent.StreamAgentInterceptor;
 import com.jrl.ai.agent.agentscope.model.AgentScopeModelRegistry;
 import com.jrl.ai.agent.agentscope.prompt.InMemoryPromptRegistry;
 import com.jrl.ai.agent.agentscope.router.DefaultRouter;
@@ -68,21 +67,19 @@ public class JAgentAutoConfiguration {
     /**
      * 注册 Agent 工厂 Bean，同时作为 {@link AgentRegistry}。
      *
-     * @param properties         JAgent 配置属性
-     * @param interceptors       同步拦截器列表
-     * @param streamInterceptors 流式拦截器列表
-     * @param skillRegistry      Skill 注册表（可选）
+     * @param properties    JAgent 配置属性
+     * @param interceptors  同步拦截器列表
+     * @param skillRegistry Skill 注册表（可选）
      * @return AgentFactory 实例
      */
     @Bean
     public AgentFactory agentFactory(JAgentProperties properties,
                                      List<AgentInterceptor> interceptors,
-                                     List<StreamAgentInterceptor> streamInterceptors,
                                      ObjectProvider<SkillRegistry> skillRegistry) {
-        log.info("[AgentFactory] Creating AgentFactory with {} sync interceptors, {} stream interceptors",
-                interceptors.size(), streamInterceptors.size());
+        log.info("[AgentFactory] Creating AgentFactory with {} sync interceptors",
+                interceptors.size());
         SkillRegistry registry = skillRegistry.getIfAvailable();
-        return new AgentFactory(properties, interceptors, streamInterceptors, registry);
+        return new AgentFactory(properties, interceptors, registry);
     }
 
     /**
@@ -366,27 +363,6 @@ public class JAgentAutoConfiguration {
     }
 
     /**
-     * 注册流式评测拦截器，自动收集所有 Evaluator Bean。
-     *
-     * <p>与同步链路的 {@link EvaluationInterceptor} 对应，负责流式链路的评测。
-     *
-     * @param evaluators      所有已注册的评测器
-     * @param compositeScorer 复合评分器
-     * @param store           评测结果存储
-     * @return StreamEvaluationInterceptor 实例
-     */
-    @Bean
-    @ConditionalOnProperty(name = "jagent.evaluation.enabled", havingValue = "true")
-    public StreamEvaluationInterceptor streamEvaluationInterceptor(
-            ObjectProvider<Evaluator> evaluators,
-            CompositeScorer compositeScorer,
-            EvaluationStore store) {
-        List<Evaluator> evaluatorList = evaluators.orderedStream().toList();
-        log.info("[StreamEvaluationInterceptor] Creating with {} evaluators", evaluatorList.size());
-        return new StreamEvaluationInterceptor(evaluatorList, compositeScorer, store);
-    }
-
-    /**
      * 注册 Agent 通用响应构建器。
      *
      * <p>提供 trace、tokenUsage、evaluation、optimization 的标准化序列化与查询能力，
@@ -408,7 +384,7 @@ public class JAgentAutoConfiguration {
     }
 
     /**
-     * 注册 Agent 通用执行器 — 纯执行引擎，同步/流式/责任链三通道。
+     * 注册 Agent 通用执行器 — 纯执行引擎，同步/责任链双通道。
      *
      * <p>评测由拦截器（AOP）自动处理，AgentExecutor 不关心评测逻辑。
      *

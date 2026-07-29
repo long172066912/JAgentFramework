@@ -1,7 +1,6 @@
 package com.jrl.ai.agent.agentscope.adapter;
 
-import com.jrl.ai.agent.agentscope.agent.StreamAgentInterceptor;
-import com.jrl.ai.agent.agentscope.agent.StreamingAgent;
+import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.agent.AgentInterceptor;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.io.ChatMessage;
@@ -9,12 +8,9 @@ import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.core.task.TaskResult;
 import com.jrl.ai.agent.core.task.contract.TokenUsage;
 import io.agentscope.core.agent.RuntimeContext;
-import io.agentscope.core.event.AgentEventType;
-import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.model.ChatUsage;
 import io.agentscope.harness.agent.HarnessAgent;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import org.slf4j.Logger;
@@ -26,17 +22,16 @@ import java.util.Map;
 
 /**
  * AgentScope Agent 适配器 — 将 AgentScope {@link HarnessAgent}
- * 包装为 jagent-core 的 {@link StreamingAgent} 接口。
+ * 包装为 jagent-core 的 {@link Agent} 接口。
  *
- * <p>同步和流式执行都经过拦截器链包装，实现 AOP 统一抽象。
+ * <p>同步执行经过拦截器链包装，实现 AOP 统一抽象。
  */
-public class AgentScopeAgentAdapter implements StreamingAgent {
+public class AgentScopeAgentAdapter implements Agent {
 
     private static final Logger log = LoggerFactory.getLogger(AgentScopeAgentAdapter.class);
 
     private final HarnessAgent delegate;
     private final List<AgentInterceptor> interceptors;
-    private final List<StreamAgentInterceptor> streamInterceptors;
 
     /**
      * 创建适配器，包装 AgentScope HarnessAgent。
@@ -44,7 +39,7 @@ public class AgentScopeAgentAdapter implements StreamingAgent {
      * @param delegate AgentScope HarnessAgent 实例
      */
     public AgentScopeAgentAdapter(HarnessAgent delegate) {
-        this(delegate, List.of(), List.of());
+        this(delegate, List.of());
     }
 
     /**
@@ -52,16 +47,13 @@ public class AgentScopeAgentAdapter implements StreamingAgent {
      *
      * @param delegate          AgentScope HarnessAgent 实例
      * @param interceptors      同步拦截器列表
-     * @param streamInterceptors 流式拦截器列表
      */
     public AgentScopeAgentAdapter(HarnessAgent delegate,
-                                   List<AgentInterceptor> interceptors,
-                                   List<StreamAgentInterceptor> streamInterceptors) {
+                                   List<AgentInterceptor> interceptors) {
         this.delegate = delegate;
         this.interceptors = interceptors != null ? new ArrayList<>(interceptors) : List.of();
-        this.streamInterceptors = streamInterceptors != null ? new ArrayList<>(streamInterceptors) : List.of();
-        log.info("AgentScopeAgentAdapter created: agentId={} interceptors={} streamInterceptors={}",
-                delegate.getAgentId(), this.interceptors.size(), this.streamInterceptors.size());
+        log.info("AgentScopeAgentAdapter created: agentId={} interceptors={}",
+                delegate.getAgentId(), this.interceptors.size());
     }
 
     @Override
@@ -155,50 +147,6 @@ public class AgentScopeAgentAdapter implements StreamingAgent {
                     tokenUsage, duration
             ).withTrace(traceBuilder.build());
         };
-    }
-
-    // ==================== 流式执行 ====================
-
-    /**
-     * 流式执行 Agent — 经过流式拦截器链包装。
-     */
-    @Override
-    public Flux<String> stream(ChatMessage input, AgentContext context) {
-        StreamAgentInterceptor.StreamExecutionChain chain = buildStreamChain();
-        return streamWithAround(input, context, chain, 0);
-    }
-
-    private Flux<String> streamWithAround(ChatMessage input, AgentContext context,
-                                           StreamAgentInterceptor.StreamExecutionChain chain, int index) {
-        if (index >= streamInterceptors.size()) {
-            return chain.proceed(input, context);
-        }
-        return streamInterceptors.get(index).aroundStream(this, input, context,
-                (i, c) -> streamWithAround(i, c, chain, index + 1));
-    }
-
-    private StreamAgentInterceptor.StreamExecutionChain buildStreamChain() {
-        return (input, context) -> {
-            Msg asMsg = MessageConverter.toAgentScope(input);
-            RuntimeContext asCtx = ContextConverter.toAgentScope(context);
-
-            return delegate.streamEvents(asMsg, asCtx)
-                    .filter(event -> event.getType() == AgentEventType.TEXT_BLOCK_DELTA)
-                    .map(event -> {
-                        if (event instanceof TextBlockDeltaEvent delta) {
-                            return delta.getDelta();
-                        }
-                        return "";
-                    })
-                    .filter(s -> !s.isEmpty());
-        };
-    }
-
-    /**
-     * 获取流式拦截器列表。
-     */
-    public List<StreamAgentInterceptor> getStreamInterceptors() {
-        return streamInterceptors;
     }
 
     /**

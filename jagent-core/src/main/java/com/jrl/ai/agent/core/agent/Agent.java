@@ -38,15 +38,4 @@ public interface Agent {
      * @return 任务执行结果
      */
     TaskResult execute(ChatMessage input, AgentContext context);
-
-    /**
-     * 是否支持流式输出。
-     *
-     * <p>默认返回 {@code false}，适配层可按实际能力覆写。
-     *
-     * @return 若支持流式事件推送则返回 {@code true}
-     */
-    default boolean supportsStreaming() {
-        return false;
-    }
 }
