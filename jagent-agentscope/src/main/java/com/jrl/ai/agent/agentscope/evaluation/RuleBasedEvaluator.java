@@ -13,8 +13,9 @@ import java.util.regex.Pattern;
 /**
  * 基于规则的评测器 — Tier1 零成本评测，始终执行。
  *
- * <p>覆盖三个维度：
+ * <p>覆盖四个维度：
  * <ul>
+ *   <li>{@code INTELLIGENCE} — 检测"不知道"类回答，识别知识缺口</li>
  *   <li>{@code PERFORMANCE} — 延迟是否超过阈值</li>
  *   <li>{@code RELIABILITY} — 基于历史成功率</li>
  *   <li>{@code SAFETY} — 敏感词正则 + Prompt 泄露检测</li>
@@ -34,6 +35,15 @@ public class RuleBasedEvaluator implements Evaluator {
     private static final List<String> PROMPT_LEAK_KEYWORDS = List.of(
             "system prompt", "系统提示词", "ignore previous instructions",
             "forget your instructions", "reveal your prompt"
+    );
+
+    /** "不知道"类回答模式 — 检测知识缺口 */
+    private static final List<Pattern> KNOWLEDGE_GAP_PATTERNS = List.of(
+            Pattern.compile("我无法(获取|提供|回答|确定|找到)"),
+            Pattern.compile("(没有|缺乏|找不到)(相关|具体|最新)(信息|数据|资料)"),
+            Pattern.compile("(不确定|不知道|不清楚|无法确认)"),
+            Pattern.compile("建议(查询|咨询|搜索|查看)"),
+            Pattern.compile("(实时|最新|当前).*(无法|不能|没有)")
     );
 
     /**
@@ -70,6 +80,9 @@ public class RuleBasedEvaluator implements Evaluator {
     public EvaluationResult evaluate(EvaluationContext context) {
         Map<EvaluationDimension, DimensionScore> scores = new EnumMap<>(EvaluationDimension.class);
 
+        // INTELLIGENCE: 检测"不知道"类回答
+        scores.put(EvaluationDimension.INTELLIGENCE, evaluateIntelligence(context));
+
         // PERFORMANCE: 延迟评测
         scores.put(EvaluationDimension.PERFORMANCE, evaluatePerformance(context));
 
@@ -79,8 +92,9 @@ public class RuleBasedEvaluator implements Evaluator {
         // SAFETY: 安全评测
         scores.put(EvaluationDimension.SAFETY, evaluateSafety(context));
 
-        log.debug("[Evaluation] RuleBased agent={} perf={} rel={} safe={}",
+        log.debug("[Evaluation] RuleBased agent={} intel={} perf={} rel={} safe={}",
                 context.agentId(),
+                scores.get(EvaluationDimension.INTELLIGENCE).score(),
                 scores.get(EvaluationDimension.PERFORMANCE).score(),
                 scores.get(EvaluationDimension.RELIABILITY).score(),
                 scores.get(EvaluationDimension.SAFETY).score());
@@ -96,7 +110,31 @@ public class RuleBasedEvaluator implements Evaluator {
 
     @Override
     public Set<EvaluationDimension> supportedDimensions() {
-        return Set.of(EvaluationDimension.PERFORMANCE, EvaluationDimension.RELIABILITY, EvaluationDimension.SAFETY);
+        return Set.of(EvaluationDimension.INTELLIGENCE, EvaluationDimension.PERFORMANCE,
+                EvaluationDimension.RELIABILITY, EvaluationDimension.SAFETY);
+    }
+
+    private DimensionScore evaluateIntelligence(EvaluationContext context) {
+        String output = context.output();
+        if (output == null || output.isEmpty()) {
+            return DimensionScore.of(EvaluationDimension.INTELLIGENCE, 0.5, EvaluationLevel.RULE, "无输出内容");
+        }
+
+        // 检测"不知道"类回答模式
+        for (Pattern pattern : KNOWLEDGE_GAP_PATTERNS) {
+            if (pattern.matcher(output).find()) {
+                return DimensionScore.of(EvaluationDimension.INTELLIGENCE, 0.3, EvaluationLevel.RULE,
+                        "检测到知识缺口: Agent 表示无法回答");
+            }
+        }
+
+        // 回答长度过短也可能表示无法回答
+        if (output.length() < 50 && output.contains("?")) {
+            return DimensionScore.of(EvaluationDimension.INTELLIGENCE, 0.4, EvaluationLevel.RULE,
+                    "回答过短，可能未解决用户问题");
+        }
+
+        return DimensionScore.of(EvaluationDimension.INTELLIGENCE, 0.8, EvaluationLevel.RULE, "回答完整");
     }
 
     @Override

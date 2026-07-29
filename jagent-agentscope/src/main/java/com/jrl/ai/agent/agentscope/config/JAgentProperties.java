@@ -144,6 +144,8 @@ public class JAgentProperties {
         private boolean sessionEnabled = false;
         /** 是否启用记忆工具（默认 false，单次任务无需记忆读写） */
         private boolean memoryEnabled = false;
+        /** 是否启用 DashScope 联网搜索（默认 false，仅 dashscope provider 支持） */
+        private boolean enableSearch = false;
 
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
@@ -171,6 +173,9 @@ public class JAgentProperties {
 
         public boolean isMemoryEnabled() { return memoryEnabled; }
         public void setMemoryEnabled(boolean memoryEnabled) { this.memoryEnabled = memoryEnabled; }
+
+        public boolean isEnableSearch() { return enableSearch; }
+        public void setEnableSearch(boolean enableSearch) { this.enableSearch = enableSearch; }
 
         /**
          * 渲染用户提示词模板，替换 {variable} 占位符。

@@ -140,7 +140,7 @@ public class AgentFactory implements AgentRegistry {
             }
 
             // 如果 YAML 中配置了 API Key，直接构建 Model 对象（避免依赖环境变量）
-            Model model = buildModel(config.getModel());
+            Model model = buildModel(config.getModel(), config.isEnableSearch());
             if (model != null) {
                 builder.model(model);
             } else {
@@ -164,16 +164,17 @@ public class AgentFactory implements AgentRegistry {
      * <p>模型引用格式为 "provider:model"（如 "dashscope:qwen-plus"、"openai:gpt-4o"）。
      * 支持两种 provider：
      * <ul>
-     *   <li>{@code dashscope} — 使用 DashScope 原生 API（可选 baseUrl 用于代理）</li>
+     *   <li>{@code dashscope} — 使用 DashScope 原生 API（可选 baseUrl 用于代理，可选 enableSearch 联网搜索）</li>
      *   <li>{@code openai} — 使用 OpenAI 兼容 API（TokenPay、OneAPI 等）</li>
      * </ul>
      * 如果 YAML 中配置了对应 provider 的 API Key，则直接构建 Model；
      * 否则返回 null，由 AgentScope SPI 自动解析。
      *
-     * @param modelRef 模型引用（格式: "provider:model"）
+     * @param modelRef      模型引用（格式: "provider:model"）
+     * @param enableSearch  是否启用联网搜索（仅 dashscope 支持）
      * @return Model 对象，或 null（未配置 API Key 时）
      */
-    private Model buildModel(String modelRef) {
+    private Model buildModel(String modelRef, boolean enableSearch) {
         int colonIdx = modelRef.indexOf(':');
         if (colonIdx <= 0) return null;
 
@@ -192,12 +193,18 @@ public class AgentFactory implements AgentRegistry {
                 baseUrl != null ? baseUrl : "(default)");
 
         return switch (provider.toLowerCase()) {
-            case "dashscope" -> DashScopeChatModel.builder()
-                    .apiKey(apiKey)
-                    .modelName(modelName)
-                    .stream(true)
-                    .baseUrl(baseUrl)
-                    .build();
+            case "dashscope" -> {
+                var b = DashScopeChatModel.builder()
+                        .apiKey(apiKey)
+                        .modelName(modelName)
+                        .stream(true)
+                        .baseUrl(baseUrl);
+                if (enableSearch) {
+                    b.enableSearch(true);
+                    log.info("DashScope 联网搜索已启用: model={}", modelName);
+                }
+                yield b.build();
+            }
             case "openai" -> new OpenAICompatibleModel(apiKey, modelName, baseUrl, true);
             default -> {
                 log.warn("暂不支持自动构建 {} 的 Model，回退到环境变量方式", provider);
