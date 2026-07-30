@@ -7,6 +7,8 @@ import com.jrl.ai.agent.agentscope.router.DefaultRouter;
 import com.jrl.ai.agent.agentscope.skill.SkillScoringInterceptor;
 import com.jrl.ai.agent.agentscope.storage.JsonFileKVStore;
 import com.jrl.ai.agent.agentscope.adapter.AgentScopeModelAdapter;
+import com.jrl.ai.agent.agentscope.model.OpenAICompatibleModel;
+import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
 import com.jrl.ai.agent.agentscope.evaluation.*;
 import com.jrl.ai.agent.core.agent.AgentInterceptor;
 import com.jrl.ai.agent.core.agent.AgentLifecycle;
@@ -232,14 +234,45 @@ public class JAgentAutoConfiguration {
      */
     @Bean
     @ConditionalOnProperty(name = "jagent.evaluation.llm-judge-enabled", havingValue = "true")
-    public LLMJudgeEvaluator llmJudgeEvaluator(JAgentProperties properties,
-                                               ModelRegistry modelRegistry) {
+    public LLMJudgeEvaluator llmJudgeEvaluator(JAgentProperties properties) {
         String modelRef = properties.getEvaluation().getLlmJudgeModel();
         String customPrompt = properties.getEvaluation().getLlmJudgePrompt();
-        com.jrl.ai.agent.core.model.Model model = modelRegistry.resolve(modelRef)
-                .orElse(new AgentScopeModelAdapter(modelRef));
+        com.jrl.ai.agent.core.model.Model model = buildModelFromConfig(modelRef, properties);
         log.info("[LLMJudgeEvaluator] model={}, customPrompt={}", modelRef, customPrompt != null);
         return new LLMJudgeEvaluator(model, customPrompt);
+    }
+
+    /**
+     * 从 jagent.model 配置构建 Model（与 AgentFactory.buildModel 逻辑一致）。
+     */
+    private static com.jrl.ai.agent.core.model.Model buildModelFromConfig(
+            String modelRef, JAgentProperties properties) {
+        int colonIdx = modelRef.indexOf(':');
+        if (colonIdx <= 0) {
+            return new AgentScopeModelAdapter(modelRef);
+        }
+        String provider = modelRef.substring(0, colonIdx);
+        String modelName = modelRef.substring(colonIdx + 1);
+        String apiKey = properties.getModel().getApiKeys().get(provider);
+        String baseUrl = properties.getModel().getBaseUrls().get(provider);
+
+        if (apiKey == null || apiKey.isBlank()) {
+            return new AgentScopeModelAdapter(modelRef);
+        }
+
+        io.agentscope.core.model.Model delegate = switch (provider.toLowerCase()) {
+            case "dashscope" -> DashScopeChatModel.builder()
+                    .apiKey(apiKey).modelName(modelName).stream(true).baseUrl(baseUrl).build();
+            case "openai" -> new OpenAICompatibleModel(apiKey, modelName, baseUrl, true, false);
+            default -> {
+                log.warn("LLMJudge: 暂不支持自动构建 {} 的 Model，回退到环境变量方式", provider);
+                yield null;
+            }
+        };
+        if (delegate == null) {
+            return new AgentScopeModelAdapter(modelRef);
+        }
+        return new AgentScopeModelAdapter(delegate, provider);
     }
 
     /**
@@ -325,11 +358,9 @@ public class JAgentAutoConfiguration {
      */
     @Bean
     @ConditionalOnProperty(name = "jagent.evaluation.optimization.llm-enabled", havingValue = "true")
-    public OptimizationAnalyzer llmOptimizationAnalyzer(JAgentProperties properties,
-                                                         ModelRegistry modelRegistry) {
+    public OptimizationAnalyzer llmOptimizationAnalyzer(JAgentProperties properties) {
         String modelRef = properties.getEvaluation().getLlmJudgeModel();
-        com.jrl.ai.agent.core.model.Model model = modelRegistry.resolve(modelRef)
-                .orElse(new AgentScopeModelAdapter(modelRef));
+        com.jrl.ai.agent.core.model.Model model = buildModelFromConfig(modelRef, properties);
         return new LlmOptimizationAnalyzer(model);
     }
 

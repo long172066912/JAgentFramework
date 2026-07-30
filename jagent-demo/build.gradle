@@ -24,8 +24,9 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'io.micrometer:micrometer-core'
 
-    // AgentScope 模型提供商（DashScope / 通义千问系列）
+    // AgentScope 模型提供商
     implementation 'io.agentscope:agentscope-extensions-model-dashscope:2.0.0'
+    implementation 'io.agentscope:agentscope-extensions-model-openai:2.0.0'
 
     // 测试
     testImplementation 'org.springframework.boot:spring-boot-starter-test'

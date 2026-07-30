@@ -1,6 +1,7 @@
 package com.jrl.ai.agent.demo.chat;
 
 import com.jrl.ai.agent.core.skill.Skill;
+import com.jrl.ai.agent.demo.chat.skill.BaiduSearchSkill;
 import com.jrl.ai.agent.demo.chat.skill.KnowledgeSearchSkill;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,5 +18,13 @@ public class ChatConfiguration {
     @Bean
     public Skill knowledgeSearchSkill() {
         return new KnowledgeSearchSkill();
+    }
+
+    /**
+     * 百度搜索 Skill — 实时联网搜索。
+     */
+    @Bean
+    public Skill baiduSearchSkill() {
+        return new BaiduSearchSkill();
     }
 }
