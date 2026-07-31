@@ -71,11 +71,12 @@ public class EvaluationDemoController {
         TaskResult result = agent.execute(ChatMessage.user(input), context);
 
         // 2. 构建评测上下文
+        String outputText = extractOutput(result);
         EvaluationContext evalContext = new EvaluationContext(
                 agent.id(),
                 context.sessionId(),
                 input,
-                result.result() != null ? String.valueOf(result.result()) : null,
+                outputText,
                 result.trace(),
                 Map.of("status", result.status().name()),
                 Map.of()
@@ -102,7 +103,7 @@ public class EvaluationDemoController {
                 .compositeScore(compositeScore)
                 .trace(result.trace())
                 .input(input)
-                .output(result.result() != null ? String.valueOf(result.result()) : null)
+                .output(outputText)
                 .build();
 
         evaluationStore.save(evaluationResult);
@@ -112,7 +113,7 @@ public class EvaluationDemoController {
                 "agentId", agent.id(),
                 "agentName", agent.name(),
                 "input", input,
-                "output", result.result() != null ? result.result() : Map.of(),
+                "output", outputText != null ? outputText : "",
                 "duration", result.durationMs() + "ms",
                 "evaluation", Map.of(
                         "compositeScore", compositeScore,
@@ -178,5 +179,17 @@ public class EvaluationDemoController {
                 "status", "accepted",
                 "message", "人工反馈已记录，将用于后续评测优化"
         );
+    }
+
+    /**
+     * 从 TaskResult 中提取可读的输出文本。
+     */
+    private String extractOutput(TaskResult result) {
+        if (result == null || result.result() == null) return null;
+        Object response = result.result().get("response");
+        if (response != null) return String.valueOf(response);
+        Object output = result.result().get("output");
+        if (output != null) return String.valueOf(output);
+        return result.result().toString();
     }
 }

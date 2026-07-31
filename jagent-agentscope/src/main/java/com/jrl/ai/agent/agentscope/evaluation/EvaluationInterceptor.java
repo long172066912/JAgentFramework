@@ -102,7 +102,7 @@ public class EvaluationInterceptor implements AgentInterceptor {
                     agent.id(),
                     result.sessionId(),
                     input != null ? input.content() : null,
-                    result.result() != null ? String.valueOf(result.result()) : null,
+                    extractOutput(result),
                     result.trace(),
                     taskResultMap,
                     Map.of()
@@ -170,7 +170,7 @@ public class EvaluationInterceptor implements AgentInterceptor {
                     .compositeScore(compositeScore)
                     .trace(enrichedTrace)
                     .input(input != null ? input.content() : null)
-                    .output(result.result() != null ? String.valueOf(result.result()) : null)
+                    .output(extractOutput(result))
                     .build();
 
             // 持久化
@@ -205,6 +205,21 @@ public class EvaluationInterceptor implements AgentInterceptor {
         } catch (Exception e) {
             log.error("[Evaluation] Failed to evaluate agent={}: {}", agent.id(), e.getMessage(), e);
         }
+    }
+
+    /**
+     * 从 TaskResult 中提取可读的输出文本。
+     *
+     * <p>优先取 "response" 字段（Agent 标准输出），避免 Map.toString() 产生不可读格式。
+     */
+    private String extractOutput(TaskResult result) {
+        if (result == null || result.result() == null) return null;
+        Object response = result.result().get("response");
+        if (response != null) return String.valueOf(response);
+        // fallback: 尝试其他常见字段
+        Object output = result.result().get("output");
+        if (output != null) return String.valueOf(output);
+        return result.result().toString();
     }
 
     /**

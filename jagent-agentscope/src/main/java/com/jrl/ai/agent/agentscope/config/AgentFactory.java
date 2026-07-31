@@ -1,6 +1,7 @@
 package com.jrl.ai.agent.agentscope.config;
 
 import com.jrl.ai.agent.agentscope.adapter.AgentScopeAgentAdapter;
+import com.jrl.ai.agent.agentscope.middleware.SubagentTraceMiddleware;
 import com.jrl.ai.agent.agentscope.model.OpenAICompatibleModel;
 import com.jrl.ai.agent.agentscope.skill.SkillToolAdapter;
 import com.jrl.ai.agent.core.agent.Agent;
@@ -126,10 +127,19 @@ public class AgentFactory implements AgentRegistry {
             String agentName = config.getName() != null ? config.getName() : key;
             String agentId = config.getName() != null ? agentName + "(" + key + ")" : key;
 
+            String sysPrompt = config.getSysPrompt();
+            List<JAgentProperties.SubagentRef> subagentRefs = config.getSubagents();
+            log.info("Agent [{}] subagents 配置: {}", key, subagentRefs != null ? subagentRefs.size() : 0);
+
+            // 自动注入子 Agent 调度规则到 sys-prompt
+            if (subagentRefs != null && !subagentRefs.isEmpty()) {
+                sysPrompt = injectSubagentRules(sysPrompt, subagentRefs);
+            }
+
             HarnessAgent.Builder builder = HarnessAgent.builder()
                     .agentId(agentId)
                     .name(agentName)
-                    .sysPrompt(config.getSysPrompt())
+                    .sysPrompt(sysPrompt)
                     .workspace(Path.of(properties.getWorkspace()))
                     .maxIters(config.getMaxIters())
                     .maxRetries(config.getMaxRetries());
@@ -182,26 +192,39 @@ public class AgentFactory implements AgentRegistry {
             }
 
             // 子 Agent 编排：引用已配置的 Agent，框架自动查找其配置
-            List<String> subagentNames = config.getSubagents();
-            if (subagentNames != null && !subagentNames.isEmpty()) {
-                for (String subName : subagentNames) {
+            if (subagentRefs != null && !subagentRefs.isEmpty()) {
+                // 注册模型解析器，让子 Agent 能通过字符串引用找到 Model 对象
+                builder.modelResolver(modelRef -> {
+                    if (modelRef == null || modelRef.isBlank()) return null;
+                    return buildModel(modelRef, false, false);
+                });
+
+                for (JAgentProperties.SubagentRef subRef : subagentRefs) {
+                    String subName = subRef.getId();
                     JAgentProperties.AgentConfig subConfig = properties.getAgents().get(subName);
                     if (subConfig == null) {
                         log.warn("Agent [{}] 引用的子 Agent [{}] 未配置，跳过", key, subName);
                         continue;
                     }
                     String subAgentName = subConfig.getName() != null ? subConfig.getName() : subName;
-                    String autoPrompt = buildSubagentPrompt(subAgentName, subConfig.getSysPrompt());
+                    // 优先使用配置的 description，否则从 sys-prompt 提取
+                    String subDesc = subConfig.getDescription() != null && !subConfig.getDescription().isBlank()
+                            ? subConfig.getDescription()
+                            : extractDescription(subConfig.getSysPrompt());
+                    String subagentPrompt = subConfig.getSysPrompt();
                     SubagentDeclaration.Builder declBuilder = SubagentDeclaration.builder()
                             .name(subName)
-                            .description(subAgentName + ": " + extractDescription(subConfig.getSysPrompt()))
-                            .inlineAgentsBody(autoPrompt);
+                            .description(subAgentName + ": " + subDesc)
+                            .inlineAgentsBody(subagentPrompt);
+                    // 设置子 Agent 的模型（通过 modelResolver 解析）
                     if (subConfig.getModel() != null) {
                         declBuilder.model(subConfig.getModel());
                     }
                     builder.subagent(declBuilder.build());
                 }
-                log.info("Agent [{}] 注册 {} 个子 Agent", key, subagentNames.size());
+                // 注册子 Agent 调度日志增强中间件
+                builder.middleware(new SubagentTraceMiddleware());
+                log.info("Agent [{}] 注册 {} 个子 Agent", key, subagentRefs.size());
             }
 
             return builder.build();
@@ -340,28 +363,6 @@ public class AgentFactory implements AgentRegistry {
     }
 
     /**
-     * 根据子 Agent 的名称和系统提示词自动生成描述。
-     *
-     * @param name     子 Agent 名称
-     * @param sysPrompt 系统提示词
-     * @return 自动生成的描述
-     */
-    private String buildSubagentPrompt(String name, String sysPrompt) {
-        return String.format("""
-                You are a specialized sub-agent named "%s".
-                
-                Your role:
-                %s
-                
-                Rules:
-                1. Focus solely on the task assigned to you
-                2. Return clear, concise results
-                3. Do not initiate conversations or perform actions beyond your scope
-                4. If you cannot complete the task, explain why briefly
-                """, name, sysPrompt);
-    }
-
-    /**
      * 从系统提示词中提取简短描述（取第一行非空内容，截断到 50 字符）。
      *
      * @param sysPrompt 系统提示词
@@ -371,12 +372,58 @@ public class AgentFactory implements AgentRegistry {
         if (sysPrompt == null || sysPrompt.isBlank()) {
             return "A specialized assistant";
         }
-        // 取第一行非空内容
         String firstLine = sysPrompt.lines()
                 .filter(line -> !line.isBlank())
                 .findFirst()
                 .orElse("A specialized assistant");
-        // 截断到 50 字符
         return firstLine.length() > 50 ? firstLine.substring(0, 47) + "..." : firstLine;
+    }
+
+    /**
+     * 自动生成并注入子 Agent 调度规则到父 Agent 的 sys-prompt。
+     *
+     * <p>根据子 Agent 的 description 和 keywords（来自 SubagentRef）生成调度规则，
+     * 告诉父 Agent 在什么情况下应该调度哪个子 Agent。
+     *
+     * @param baseSysPrompt  原始 sys-prompt
+     * @param subagentRefs   子 Agent 引用列表（含 keywords）
+     * @return 注入调度规则后的 sys-prompt
+     */
+    private String injectSubagentRules(String baseSysPrompt, List<JAgentProperties.SubagentRef> subagentRefs) {
+        StringBuilder rules = new StringBuilder();
+        rules.append("\n\n## 子 Agent 调度规则（必须遵守）\n");
+        rules.append("你可以调度以下子 Agent 处理专业任务，不要自己完成这些任务：\n");
+
+        for (JAgentProperties.SubagentRef subRef : subagentRefs) {
+            String subName = subRef.getId();
+            JAgentProperties.AgentConfig subConfig = properties.getAgents().get(subName);
+            if (subConfig == null) continue;
+
+            String subAgentName = subConfig.getName() != null ? subConfig.getName() : subName;
+            String desc = subConfig.getDescription() != null && !subConfig.getDescription().isBlank()
+                    ? subConfig.getDescription()
+                    : extractDescription(subConfig.getSysPrompt());
+            // keywords 来自 SubagentRef（父 Agent 视角），不是子 Agent 自身配置
+            List<String> keywords = subRef.getKeywords();
+
+            rules.append("\n### ").append(subAgentName).append(" (agent_id=\"").append(subName).append("\")\n");
+            rules.append("- 能力：").append(desc).append("\n");
+
+            if (keywords != null && !keywords.isEmpty()) {
+                rules.append("- 触发条件：用户输入包含以下关键词时调度 → ");
+                rules.append(String.join("、", keywords)).append("\n");
+            }
+
+            rules.append("- 调用方式：agent_spawn(agent_id=\"").append(subName)
+                    .append("\", task=\"具体任务描述\")\n");
+        }
+
+        rules.append("\n调度原则：\n");
+        rules.append("1. 识别用户意图，匹配到子 Agent 能力范围时必须调度\n");
+        rules.append("2. 调度后将子 Agent 的返回结果直接呈现给用户\n");
+        rules.append("3. 不要自己完成子 Agent 能处理的任务\n");
+
+        log.debug("自动注入子 Agent 调度规则: agents={}", subagentRefs.size());
+        return baseSysPrompt + rules;
     }
 }

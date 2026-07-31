@@ -386,6 +386,7 @@ public class OpenAICompatibleModel extends ChatModelBase {
                 .id(id)
                 .name(name)
                 .input(input)
+                .content(argsStr)
                 .build();
     }
 

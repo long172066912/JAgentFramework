@@ -130,6 +130,8 @@ public class JAgentProperties {
     public static class AgentConfig {
         /** Agent 显示名称 */
         private String name;
+        /** Agent 能力描述（用于子 Agent 调度时自动生成调度规则） */
+        private String description;
         /** 系统提示词（角色定义，静态） */
         private String sysPrompt = "You are a helpful AI assistant.";
         /** 用户提示词模板（支持 {variable} 占位符，每次请求动态渲染） */
@@ -154,11 +156,14 @@ public class JAgentProperties {
         private String sessionGroup;
         /** Markdown Skill 目录（相对于 workspace，可选，启用后自动热加载 SKILL.md） */
         private String skillsDir;
-        /** 子 Agent 名称列表（引用已配置的其他 Agent，框架自动查找其配置） */
-        private List<String> subagents = new ArrayList<>();
+        /** 子 Agent 引用列表（支持简单字符串或带 keywords 的对象配置） */
+        private List<SubagentRef> subagents = new ArrayList<>();
 
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
+
+        public String getDescription() { return description; }
+        public void setDescription(String description) { this.description = description; }
 
         public String getSysPrompt() { return sysPrompt; }
         public void setSysPrompt(String sysPrompt) { this.sysPrompt = sysPrompt; }
@@ -196,8 +201,8 @@ public class JAgentProperties {
         public String getSkillsDir() { return skillsDir; }
         public void setSkillsDir(String skillsDir) { this.skillsDir = skillsDir; }
 
-        public List<String> getSubagents() { return subagents; }
-        public void setSubagents(List<String> subagents) { this.subagents = subagents; }
+        public List<SubagentRef> getSubagents() { return subagents; }
+        public void setSubagents(List<SubagentRef> subagents) { this.subagents = subagents; }
 
         /**
          * 渲染用户提示词模板，替换 {variable} 占位符。
@@ -216,5 +221,40 @@ public class JAgentProperties {
             }
             return result;
         }
+    }
+
+    /**
+     * 子 Agent 引用配置 — 支持简单字符串（仅 id）或对象（id + keywords）。
+     *
+     * <p>YAML 示例：
+     * <pre>{@code
+     * subagents:
+     *   - translator           # 简单字符串
+     *   - id: summarizer       # 对象形式
+     *     keywords: ["摘要", "总结"]
+     * }</pre>
+     */
+    public static class SubagentRef {
+        /** 子 Agent 标识（引用已配置的 Agent） */
+        private String id;
+        /** 触发关键词列表（父 Agent 视角：用户输入包含这些词时调度此子 Agent） */
+        private List<String> keywords = new ArrayList<>();
+
+        public SubagentRef() {}
+
+        /**
+         * 从字符串构造（简单引用模式）。
+         *
+         * @param id 子 Agent 标识
+         */
+        public SubagentRef(String id) {
+            this.id = id;
+        }
+
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
+
+        public List<String> getKeywords() { return keywords; }
+        public void setKeywords(List<String> keywords) { this.keywords = keywords; }
     }
 }
