@@ -241,7 +241,7 @@
 
                 // 查询评测结果（仅知识库模式显示评分和重试按钮）
                 if (agentKey === 'chat') {
-                    fetchEvaluation(sessionId, assistantEl, text, agentKey);
+                    fetchEvaluation(sessionId, assistantEl, text);
                 }
 
             } catch (err) {
@@ -271,33 +271,13 @@
         }
 
         /**
-         * 美化纯文本回复 — 自动添加 Markdown 格式
-         * 1. 编号列表 (1. 2. 3.) → Markdown 有序列表
-         * 2. 长段落按句号/分号拆分
-         * 3. 关键信息加粗
+         * 轻量文本清理 — AI 已返回格式化内容，此处仅做最小兜底
          */
         function beautifyText(text) {
             if (!text || text.trim().length === 0) return text;
-            
             let result = text;
-            
-            // 1. 编号列表格式化："1. xxx 2. xxx" → 每行一个
-            // 匹配 "数字. " 或 "数字、" 开头的列表项
-            result = result.replace(/(\d+)[.、]\s*/g, '\n$1. ');
-            
-            // 2. 在句号、问号、感叹号后添加换行（如果后面跟的是大写字母或数字）
-            result = result.replace(/([。！？])\s*(?=\d+\.|[A-Z\u4e00-\u9fa5])/g, '$1\n');
-            
-            // 3. 关键信息加粗（数字+单位、日期时间等）
-            result = result.replace(/(\d+\.\d+级|\d+公里|\d+万人?|\d+万户?|\d+人|\d+次|\d+天|\d+月\d+日\d+时\d+分)/g, '**$1**');
-            
-            // 4. 在"主要情况"、"以下是"等引导词后加换行
-            result = result.replace(/(以下是主要情况[：:])/g, '$1\n');
-            result = result.replace(/(你是想了解哪方面的信息[？?])/g, '\n$1');
-            
-            // 5. 清理多余的连续换行（保留最多2个）
+            // 清理多余连续换行（保留最多2个）
             result = result.replace(/\n{3,}/g, '\n\n');
-            
             return result;
         }
 
@@ -307,11 +287,11 @@
             return div.innerHTML;
         }
 
-        async function fetchEvaluation(sessionId, messageEl, originalText, agentKey = 'chat') {
+        async function fetchEvaluation(sessionId, messageEl, originalText) {
             const contentEl = messageEl.querySelector('.content');
             
-            // 仅 chat agent 显示"联网搜索"按钮（chat-web 已经是联网结果，无需再搜）
-            if (originalText && agentKey === 'chat') {
+            // 始终显示"联网搜索"按钮
+            if (originalText) {
                 const retryBtn = document.createElement('button');
                 retryBtn.className = 'retry-btn';
                 retryBtn.innerHTML = '<span class="retry-icon">🌐</span> 联网搜索';

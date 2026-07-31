@@ -190,7 +190,8 @@ public class AgentScopeAgentAdapter implements Agent {
                         if (fullText.length() > prevLen[0]) {
                             String delta = fullText.substring(prevLen[0]);
                             prevLen[0] = fullText.length();
-                            return delta;
+                            // SSE 协议以 \n 分隔事件，需转义避免换行符被当作协议边界丢失
+                            return delta.replace("\n", "\\n");
                         }
                         return "";
                     })

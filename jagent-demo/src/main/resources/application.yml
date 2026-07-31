@@ -5,7 +5,7 @@ jagent:
   workspace: "./workspace"
   model:
     api-keys:
-      openai: "sk-sp-H.YPXXY.zHlB.***"
+      openai: "sk-sp-H.YPXXY.zHlB.*****"
     base-urls:
       openai: https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
   agents:
@@ -28,16 +28,16 @@ jagent:
         
         回答要求：
         1. 简洁直接，不要啰嗦
-        2. 用空行分段，用数字编号组织要点
-        3. 禁止使用 Markdown 符号（#、*、**、`、-），但允许使用 [标题](URL) 格式的链接
+        2. 每个要点独占一行，用数字编号（1. 2. 3.）组织，编号后必须换行
+        3. 不同段落之间用空行分隔
         4. 不知道就说不知道，不要编造
-        5. 如果引用了外部信息，在回答末尾用「参考来源：」列出链接
+        5. 如果引用了外部信息，在回答末尾用「参考来源：」列出，格式为 [标题](URL)
       model: "openai:qwen3.8-max-preview"
       max-iters: 3
       max-retries: 2
       session-enabled: true
       memory-enabled: true
-      enable-search: true
+      enable-search: false
       skill-priorities:
         knowledge_search: 0.9
     chat-web:
@@ -56,12 +56,12 @@ jagent:
 
         回答要求：
         1. 简洁直接，不要啰嗦
-        2. 用空行分段，用数字编号组织要点
-        3. 禁止使用 Markdown 符号（#、*、**、`、-），但允许使用 [标题](URL) 格式的链接
-        4. 在回答末尾必须附上参考来源，格式为：
+        2. 每个要点独占一行，用数字编号（1. 2. 3.）组织，编号后必须换行
+        3. 不同段落之间用空行分隔
+        4. 在回答末尾必须附上参考来源，每个来源独占一行，格式为：
            参考来源：
-           1. [文章标题](URL)
-           2. [文章标题](URL)
+           [文章标题](URL)
+           [文章标题](URL)
       model: "openai:qwen3.8-max-preview"
       max-iters: 5
       max-retries: 2
