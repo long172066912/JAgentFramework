@@ -5,7 +5,7 @@ jagent:
   workspace: "./workspace"
   model:
     api-keys:
-      openai: "sk-sp-H.YPXXY.xoaC.***"
+      openai: "sk-sp-H.YPXXY.xoaC.*****"
     base-urls:
       openai: https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
   agents:
@@ -48,6 +48,8 @@ jagent:
           keywords: ["翻译", "translate", "英文", "中文", "英译中", "中译英"]
         - id: summarizer
           keywords: ["摘要", "总结", "概括", "summarize", "要点"]
+        - id: chat-web
+          keywords: ["联网搜索", "web_search"]
     chat-web:
       name: "联网搜索助手"
       sys-prompt: |-
