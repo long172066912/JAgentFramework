@@ -24,28 +24,32 @@
 | **AgentResponse 统一响应** | 一行返回业务数据 + trace + tokenUsage + evaluation + optimization |
 | **Spring Boot 自动装配** | `@Import(JAgentAutoConfiguration.class)` 一键启用，YAML 配置驱动 |
 | **Micrometer 监控** | 自动采集 Agent 执行耗时、Skill 调用次数、Token 消耗 |
+| **SSE 流式输出** | 基于虚拟线程的 SSE 流式推送，前端 Markdown 实时渲染 |
+| **OpenAI 兼容模型** | `OpenAICompatibleModel` 支持任意 OpenAI 协议端点（TokenPay、OneAPI 等） |
+| **联网搜索多源 Fallback** | `WebSearchSkill` 依次尝试 Bing → DuckDuckGo → 360，自动降级 |
+| **知识库检索** | `KnowledgeSearchSkill` 关键词匹配检索，Agent 优先查知识库再决定是否联网 |
 
 ---
 
 ## 架构
 
 ```
-┌──────────────────────────────────────────────┐
-│              jagent-demo                     │
-│         （聊天、打标、翻译、摘要）              │
-├──────────────────────────────────────────────┤
-│            jagent-agentscope                 │
-│   Agent 适配 · Skill 桥接 · Spring 自动装配   │
-├──────────────────────────────────────────────┤
-│              jagent-core                     │
-│  agent · skill · model · plan · evaluation   │
-│  prompt · router · feedback · monitor · task │
-└──────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│                  jagent-demo                     │
+│  Web 聊天 · 智能打标 · 翻译 · 摘要 · 评测 API    │
+├──────────────────────────────────────────────────┤
+│               jagent-agentscope                  │
+│  Agent 适配 · Model 桥接 · Skill 桥接 · 自动装配  │
+├──────────────────────────────────────────────────┤
+│                 jagent-core                      │
+│  agent · skill · model · plan · evaluation       │
+│  prompt · router · feedback · monitor · task     │
+└──────────────────────────────────────────────────┘
 ```
 
 - **jagent-core** — 纯抽象层，仅依赖 JDK + SLF4J
 - **jagent-agentscope** — 实现层，桥接 AgentScope 2.0 + Spring Boot
-- **jagent-demo** — 业务示例，含 Web 聊天界面
+- **jagent-demo** — 业务示例，含 Web 聊天界面和完整打标流程
 
 ---
 
@@ -60,7 +64,7 @@
 
 ```groovy
 dependencies {
-    implementation 'com.jrl.ai:jagent-agentscope:0.4.0'
+    implementation 'com.jrl.ai:jagent-agentscope:0.5.0'
 }
 ```
 
@@ -80,12 +84,24 @@ jagent:
     chat:
       name: "智能助手"
       sys-prompt: |
-        你是一个智能助手。
+        你是一个智能助手，可以使用「知识检索」工具查询知识库。
         回答要求：简洁直接，每个要点独占一行，段落间用空行分隔。
       model: "openai:qwen3.8-max-preview"
       max-iters: 3
       session-enabled: true
       memory-enabled: true
+      skill-priorities:
+        knowledge_search: 0.9
+    chat-web:
+      name: "联网搜索助手"
+      sys-prompt: |
+        你是一个联网搜索助手。收到问题后调用 web_search 搜索，
+        基于搜索结果回答，末尾附上参考来源 [标题](URL)。
+      model: "openai:qwen3.8-max-preview"
+      max-iters: 5
+      session-enabled: true
+      skill-priorities:
+        web_search: 1.0
   evaluation:
     enabled: true
     weights:
@@ -111,21 +127,24 @@ public class MyApp {
 }
 ```
 
+**同步调用：**
 ```java
-@RestController
-public class ChatController {
+@PostMapping("/chat")
+public Mono<AgentResponse<String>> chat(@RequestBody ChatRequest req) {
+    return Mono.fromCallable(() ->
+        agentExecutor.execute("chat",
+            ChatMessage.user(req.text()),
+            AgentContext.builder().sessionId(req.sessionId()).build(),
+            tr -> (String) tr.result().get("response"))
+    ).subscribeOn(Schedulers.boundedElastic());
+}
+```
 
-    private final AgentExecutor agentExecutor;
-
-    @PostMapping("/chat")
-    public Mono<AgentResponse<String>> chat(@RequestBody ChatRequest req) {
-        return Mono.fromCallable(() ->
-            agentExecutor.execute("chat",
-                ChatMessage.user(req.text()),
-                AgentContext.builder().sessionId(req.sessionId()).build(),
-                tr -> (String) tr.result().get("response"))
-        ).subscribeOn(Schedulers.boundedElastic());
-    }
+**SSE 流式输出：**
+```java
+@PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+public Flux<String> stream(@RequestBody ChatRequest req) {
+    return agentService.stream("chat", req.text(), req.sessionId(), "user");
 }
 ```
 
@@ -134,6 +153,17 @@ public class ChatController {
 ---
 
 ## 核心概念
+
+### 双 Agent 分层响应
+
+```
+用户提问 → chat（知识库检索）→ 回答
+                ↓ 用户点「联网搜索」
+         chat-web（联网搜索）→ 回答 + 参考来源
+```
+
+- **chat**：优先查知识库（`knowledge_search`），不自动联网
+- **chat-web**：调用 `web_search` 搜索（Bing/DuckDuckGo/360 多源 fallback），必须附参考来源
 
 ### 拦截器链
 
@@ -189,20 +219,28 @@ export OPENAI_API_KEY=sk-xxx
 ```
 
 启动后访问 `http://localhost:8080` 即可使用聊天界面，支持：
-- 多轮对话 + 知识库检索
-- SSE 流式输出 + Markdown 渲染
-- 一键联网搜索（多源 fallback）
-- 实时评测置信度展示
-- 参考来源链接
+
+- **多轮对话** — 会话持久化 + 记忆能力
+- **知识库检索** — chat Agent 优先查知识库，不自动联网
+- **SSE 流式输出** — 虚拟线程驱动，文本增量实时推送
+- **Markdown 渲染** — 前端 marked.js 实时解析，支持列表/代码块/链接
+- **一键联网搜索** — 点击按钮触发 chat-web Agent，多源 fallback（Bing → DDG → 360）
+- **参考来源链接** — 联网搜索结果自动附 `[标题](URL)` 格式来源
+- **实时评测** — 置信度评分 + 低分自动优化建议
 
 ```bash
+# 同步对话
+curl -X POST http://localhost:8080/api/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"agentKey":"chat","text":"介绍一下 JAgentFramework","sessionId":"s1"}'
+
 # 智能打标
 curl -X POST http://localhost:8080/api/tagging/tag \
   -H "Content-Type: application/json" \
   -d '{"contentId":"001","contentType":"product","contentText":"复古胶片风相机","requiredTagCount":5}'
 
-# 查看 Skill 评分
-curl http://localhost:8080/api/skill-scoring/scores/tagger
+# 查看评测结果
+curl "http://localhost:8080/api/chat/evaluation?sessionId=s1"
 ```
 
 ---
@@ -240,14 +278,43 @@ jagent:
   agents:
     translator:
       name: "翻译助手"
-      sys-prompt: "你是中英互译助手"
+      sys-prompt: "你是中英互译助手，只输出翻译结果"
       model: "openai:qwen3.8-max-preview"
-      max-iters: 10
+      max-iters: 3
       max-retries: 3
+    summarizer:
+      name: "摘要助手"
+      sys-prompt: "用简洁语言概括核心要点，不超过 100 字"
+      model: "openai:qwen3.8-max-preview"
+    chat:
+      name: "智能助手"
+      sys-prompt: |
+        你是智能助手，可使用「知识检索」工具查询知识库。
+        回答要求：简洁直接，每个要点独占一行，段落间用空行分隔。
+      model: "openai:qwen3.8-max-preview"
+      max-iters: 3
       session-enabled: true
       memory-enabled: true
+      enable-search: false
+      skill-priorities:
+        knowledge_search: 0.9
+    chat-web:
+      name: "联网搜索助手"
+      sys-prompt: |
+        你是联网搜索助手。调用 web_search 搜索后基于结果回答，
+        末尾附参考来源，格式：[标题](URL)
+      model: "openai:qwen3.8-max-preview"
+      max-iters: 5
+      session-enabled: true
+      skill-priorities:
+        web_search: 1.0
+    tagger:
+      name: "智能打标助手"
+      sys-prompt: "你是专业标签抽取引擎，输出 JSON 格式"
+      model: "openai:qwen3.8-max-preview"
       skill-priorities:
         vector_search: 0.9
+        vector_upsert: 0.7
         vector_get: 0.5
   evaluation:
     enabled: true
@@ -278,7 +345,7 @@ jagent:
 ./gradlew publishToMavenLocal  # 发布到本地
 ```
 
-发布到 GitHub Packages 需配置 `GITHUB_ACTOR` 和 `GITHUB_TOKEN` 环境变量，或通过创建 GitHub Release 触发自动发布。
+发布到 GitHub Packages 需配置 `GITHUB_ACTOR` 和 `GITHUB_TOKEN` 环境变量，或通过创建 GitHub Release（如 `v0.5.0`）触发自动发布。
 
 ---
 
