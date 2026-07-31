@@ -148,6 +148,8 @@ public class JAgentProperties {
         private boolean enableSearch = false;
         /** 是否启用模型推理/思考模式（默认 false，开启后响应更慢但更深入） */
         private boolean enableThinking = false;
+        /** 共享会话组标识，同组 Agent 共享对话历史（可选） */
+        private String sessionGroup;
 
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
@@ -181,6 +183,9 @@ public class JAgentProperties {
 
         public boolean isEnableThinking() { return enableThinking; }
         public void setEnableThinking(boolean enableThinking) { this.enableThinking = enableThinking; }
+
+        public String getSessionGroup() { return sessionGroup; }
+        public void setSessionGroup(String sessionGroup) { this.sessionGroup = sessionGroup; }
 
         /**
          * 渲染用户提示词模板，替换 {variable} 占位符。

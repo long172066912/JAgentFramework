@@ -9,6 +9,8 @@ import com.jrl.ai.agent.core.agent.AgentRegistry;
 import com.jrl.ai.agent.core.skill.Skill;
 import com.jrl.ai.agent.core.skill.SkillRegistry;
 import io.agentscope.core.model.Model;
+import io.agentscope.core.state.AgentStateStore;
+import io.agentscope.core.state.JsonFileAgentStateStore;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
 import io.agentscope.harness.agent.HarnessAgent;
@@ -37,6 +39,7 @@ public class AgentFactory implements AgentRegistry {
     private final SkillRegistry skillRegistry;
     private final ConcurrentHashMap<String, Agent> agentCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, HarnessAgent> harnessCache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AgentStateStore> sharedStateStores = new ConcurrentHashMap<>();
 
     /**
      * 创建无拦截器的 Agent 工厂。
@@ -152,6 +155,16 @@ public class AgentFactory implements AgentRegistry {
             if (skillRegistry != null && !skillRegistry.all().isEmpty()) {
                 Toolkit toolkit = buildToolkit(key, skillRegistry);
                 builder.toolkit(toolkit);
+            }
+
+            // 共享会话组：同组 Agent 共享同一个 AgentStateStore，实现多 Agent 协同感知上下文
+            String sessionGroup = config.getSessionGroup();
+            if (sessionGroup != null && !sessionGroup.isBlank()) {
+                AgentStateStore sharedStore = sharedStateStores.computeIfAbsent(sessionGroup,
+                        group -> new JsonFileAgentStateStore(
+                                Path.of(properties.getWorkspace(), "shared-sessions", group)));
+                builder.stateStore(sharedStore);
+                log.info("Agent [{}] 加入共享会话组: {}", key, sessionGroup);
             }
 
             return builder.build();

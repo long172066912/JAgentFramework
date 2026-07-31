@@ -36,6 +36,7 @@ jagent:
       max-iters: 3
       max-retries: 2
       session-enabled: true
+      session-group: "chat"
       memory-enabled: true
       enable-search: false
       skill-priorities:
@@ -66,6 +67,7 @@ jagent:
       max-iters: 5
       max-retries: 2
       session-enabled: true
+      session-group: "chat"
       memory-enabled: true
       enable-search: false
       skill-priorities:
