@@ -9,6 +9,7 @@ import com.jrl.ai.agent.core.agent.AgentRegistry;
 import com.jrl.ai.agent.core.skill.Skill;
 import com.jrl.ai.agent.core.skill.SkillRegistry;
 import io.agentscope.core.model.Model;
+import io.agentscope.core.skill.repository.FileSystemSkillRepository;
 import io.agentscope.core.state.AgentStateStore;
 import io.agentscope.core.state.JsonFileAgentStateStore;
 import io.agentscope.core.tool.Toolkit;
@@ -165,6 +166,18 @@ public class AgentFactory implements AgentRegistry {
                                 Path.of(properties.getWorkspace(), "shared-sessions", group)));
                 builder.stateStore(sharedStore);
                 log.info("Agent [{}] 加入共享会话组: {}", key, sessionGroup);
+            }
+
+            // Markdown Skill 热加载：配置目录后自动扫描 SKILL.md，修改即生效无需重启
+            String skillsDir = config.getSkillsDir();
+            if (skillsDir != null && !skillsDir.isBlank()) {
+                Path skillsPath = Path.of(properties.getWorkspace(), skillsDir);
+                if (java.nio.file.Files.isDirectory(skillsPath)) {
+                    builder.skillRepository(new FileSystemSkillRepository(skillsPath));
+                    log.info("Agent [{}] 加载 Markdown Skill 目录: {}", key, skillsPath);
+                } else {
+                    log.warn("Agent [{}] Markdown Skill 目录不存在: {}", key, skillsPath);
+                }
             }
 
             return builder.build();
