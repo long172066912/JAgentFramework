@@ -52,8 +52,6 @@ public class AgentScopeAgentAdapter implements Agent {
                                    List<AgentInterceptor> interceptors) {
         this.delegate = delegate;
         this.interceptors = interceptors != null ? new ArrayList<>(interceptors) : List.of();
-        log.info("AgentScopeAgentAdapter created: agentId={} interceptors={}",
-                delegate.getAgentId(), this.interceptors.size());
     }
 
     @Override
@@ -172,17 +170,9 @@ public class AgentScopeAgentAdapter implements Agent {
         Msg asMsg = MessageConverter.toAgentScope(input);
         RuntimeContext asCtx = ContextConverter.toAgentScope(context);
 
-        log.info("[Stream] Starting stream for agent={}", id());
-
-        // 通过虚拟线程异步启动流式执行，通过回调通知事件
-        // 使用 delegate.stream() 而非 streamEvents() 以支持多轮执行
-        // AgentScope stream() 返回的是累积全文，需要计算 delta 增量
         Thread.startVirtualThread(() -> {
             final int[] prevLen = {0};
             delegate.stream(asMsg, asCtx)
-                    .doOnNext(event -> log.info("[Stream] Event type={}, isLast={}, msgLength={}",
-                            event.getType(), event.isLast(),
-                            event.getMessage() != null ? event.getMessage().getTextContent().length() : 0))
                     .filter(event -> event.getMessage() != null
                             && event.getMessage().getTextContent() != null)
                     .map(event -> {
@@ -203,7 +193,6 @@ public class AgentScopeAgentAdapter implements Agent {
                                 onError.accept(error);
                             },
                             () -> {
-                                log.info("[Stream] Completed for agent={}", id());
                                 onComplete.run();
                             }
                     );
