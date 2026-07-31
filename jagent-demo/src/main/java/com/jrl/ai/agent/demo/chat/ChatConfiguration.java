@@ -1,7 +1,7 @@
 package com.jrl.ai.agent.demo.chat;
 
 import com.jrl.ai.agent.core.skill.Skill;
-import com.jrl.ai.agent.demo.chat.skill.BaiduSearchSkill;
+import com.jrl.ai.agent.demo.chat.skill.WebSearchSkill;
 import com.jrl.ai.agent.demo.chat.skill.KnowledgeSearchSkill;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,10 +21,10 @@ public class ChatConfiguration {
     }
 
     /**
-     * 百度搜索 Skill — 实时联网搜索。
+     * 联网搜索 Skill — 多源 fallback（Bing → DuckDuckGo → 360），永久免费、无需 API Key。
      */
     @Bean
-    public Skill baiduSearchSkill() {
-        return new BaiduSearchSkill();
+    public Skill webSearchSkill() {
+        return new WebSearchSkill();
     }
 }

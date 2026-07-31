@@ -206,7 +206,7 @@ public class AgentFactory implements AgentRegistry {
                 }
                 yield b.build();
             }
-            case "openai" -> new OpenAICompatibleModel(apiKey, modelName, baseUrl, true, enableThinking);
+            case "openai" -> new OpenAICompatibleModel(apiKey, modelName, baseUrl, false, enableThinking);
             default -> {
                 log.warn("暂不支持自动构建 {} 的 Model，回退到环境变量方式", provider);
                 yield null;

@@ -21,6 +21,8 @@ import com.jrl.ai.agent.core.plan.Planner;
 import com.jrl.ai.agent.core.prompt.PromptRegistry;
 import com.jrl.ai.agent.core.retrieval.Retriever;
 import com.jrl.ai.agent.core.router.Router;
+import com.jrl.ai.agent.core.skill.DefaultSkillRegistry;
+import com.jrl.ai.agent.core.skill.Skill;
 import com.jrl.ai.agent.core.skill.SkillRegistry;
 import com.jrl.ai.agent.core.skill.SkillScorer;
 import com.jrl.ai.agent.core.storage.KVStore;
@@ -69,19 +71,34 @@ public class JAgentAutoConfiguration {
     /**
      * 注册 Agent 工厂 Bean，同时作为 {@link AgentRegistry}。
      *
-     * @param properties    JAgent 配置属性
-     * @param interceptors  同步拦截器列表
-     * @param skillRegistry Skill 注册表（可选）
+     * <p>自动收集所有 Skill Bean 和 SkillRegistry Bean，合并为统一注册表。
+     *
+     * @param properties     JAgent 配置属性
+     * @param interceptors   同步拦截器列表
+     * @param skillRegistries 所有 SkillRegistry Bean（可选）
+     * @param skills         所有独立 Skill Bean（可选）
      * @return AgentFactory 实例
      */
     @Bean
     public AgentFactory agentFactory(JAgentProperties properties,
                                      List<AgentInterceptor> interceptors,
-                                     ObjectProvider<SkillRegistry> skillRegistry) {
+                                     ObjectProvider<List<SkillRegistry>> skillRegistries,
+                                     ObjectProvider<List<Skill>> skills) {
         log.info("[AgentFactory] Creating AgentFactory with {} sync interceptors",
                 interceptors.size());
-        SkillRegistry registry = skillRegistry.getIfAvailable();
-        return new AgentFactory(properties, interceptors, registry);
+
+        // 合并所有 SkillRegistry 和独立 Skill Bean 为统一注册表
+        DefaultSkillRegistry unifiedRegistry = new DefaultSkillRegistry();
+        skillRegistries.getIfAvailable(List::of).forEach(registry ->
+                registry.all().forEach(unifiedRegistry::register));
+        skills.getIfAvailable(List::of).forEach(unifiedRegistry::register);
+
+        if (!unifiedRegistry.all().isEmpty()) {
+            log.info("[AgentFactory] 统一 Skill 注册表: {} 个技能",
+                    unifiedRegistry.all().stream().map(Skill::name).toList());
+        }
+
+        return new AgentFactory(properties, interceptors, unifiedRegistry);
     }
 
     /**
@@ -263,7 +280,7 @@ public class JAgentAutoConfiguration {
         io.agentscope.core.model.Model delegate = switch (provider.toLowerCase()) {
             case "dashscope" -> DashScopeChatModel.builder()
                     .apiKey(apiKey).modelName(modelName).stream(true).baseUrl(baseUrl).build();
-            case "openai" -> new OpenAICompatibleModel(apiKey, modelName, baseUrl, true, false);
+            case "openai" -> new OpenAICompatibleModel(apiKey, modelName, baseUrl, false, false);
             default -> {
                 log.warn("LLMJudge: 暂不支持自动构建 {} 的 Model，回退到环境变量方式", provider);
                 yield null;

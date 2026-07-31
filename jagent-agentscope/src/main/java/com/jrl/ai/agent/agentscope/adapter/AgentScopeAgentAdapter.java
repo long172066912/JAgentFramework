@@ -176,15 +176,25 @@ public class AgentScopeAgentAdapter implements Agent {
 
         // 通过虚拟线程异步启动流式执行，通过回调通知事件
         // 使用 delegate.stream() 而非 streamEvents() 以支持多轮执行
-        Thread.startVirtualThread(() ->
+        // AgentScope stream() 返回的是累积全文，需要计算 delta 增量
+        Thread.startVirtualThread(() -> {
+            final int[] prevLen = {0};
             delegate.stream(asMsg, asCtx)
                     .doOnNext(event -> log.info("[Stream] Event type={}, isLast={}, msgLength={}",
                             event.getType(), event.isLast(),
                             event.getMessage() != null ? event.getMessage().getTextContent().length() : 0))
                     .filter(event -> event.getMessage() != null
-                            && event.getMessage().getTextContent() != null
-                            && !event.getMessage().getTextContent().isEmpty())
-                    .map(event -> event.getMessage().getTextContent())
+                            && event.getMessage().getTextContent() != null)
+                    .map(event -> {
+                        String fullText = event.getMessage().getTextContent();
+                        if (fullText.length() > prevLen[0]) {
+                            String delta = fullText.substring(prevLen[0]);
+                            prevLen[0] = fullText.length();
+                            return delta;
+                        }
+                        return "";
+                    })
+                    .filter(delta -> !delta.isEmpty())
                     .subscribe(
                             onDelta,
                             error -> {
@@ -195,8 +205,8 @@ public class AgentScopeAgentAdapter implements Agent {
                                 log.info("[Stream] Completed for agent={}", id());
                                 onComplete.run();
                             }
-                    )
-        );
+                    );
+        });
     }
 
     /**
