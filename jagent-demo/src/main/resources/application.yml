@@ -24,7 +24,11 @@ jagent:
     chat:
       name: "智能助手"
       sys-prompt: |-
-        你是一个智能助手，可以使用「知识检索」工具查询知识库。
+        你是一个智能助手，可以使用「知识检索」工具查询知识库，也可以调度子 Agent 完成专业任务。
+        
+        你可以调度的子 Agent：
+        - translator: 翻译专家，需要翻译时调用
+        - summarizer: 摘要专家，需要总结长文本时调用
         
         回答要求：
         1. 简洁直接，不要啰嗦
@@ -33,7 +37,7 @@ jagent:
         4. 不知道就说不知道，不要编造
         5. 如果引用了外部信息，在回答末尾用「参考来源：」列出，格式为 [标题](URL)
       model: "openai:qwen3.8-max-preview"
-      max-iters: 3
+      max-iters: 5
       max-retries: 2
       session-enabled: true
       session-group: "chat"
@@ -41,6 +45,9 @@ jagent:
       enable-search: false
       skill-priorities:
         knowledge_search: 0.9
+      subagents:
+        - translator
+        - summarizer
     chat-web:
       name: "联网搜索助手"
       sys-prompt: |-

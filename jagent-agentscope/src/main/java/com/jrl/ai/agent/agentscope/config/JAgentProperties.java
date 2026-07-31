@@ -2,7 +2,9 @@ package com.jrl.ai.agent.agentscope.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -152,6 +154,8 @@ public class JAgentProperties {
         private String sessionGroup;
         /** Markdown Skill 目录（相对于 workspace，可选，启用后自动热加载 SKILL.md） */
         private String skillsDir;
+        /** 子 Agent 名称列表（引用已配置的其他 Agent，框架自动查找其配置） */
+        private List<String> subagents = new ArrayList<>();
 
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
@@ -191,6 +195,9 @@ public class JAgentProperties {
 
         public String getSkillsDir() { return skillsDir; }
         public void setSkillsDir(String skillsDir) { this.skillsDir = skillsDir; }
+
+        public List<String> getSubagents() { return subagents; }
+        public void setSubagents(List<String> subagents) { this.subagents = subagents; }
 
         /**
          * 渲染用户提示词模板，替换 {variable} 占位符。

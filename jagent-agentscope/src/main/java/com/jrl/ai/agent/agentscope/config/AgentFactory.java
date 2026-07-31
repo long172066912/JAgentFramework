@@ -15,6 +15,7 @@ import io.agentscope.core.state.JsonFileAgentStateStore;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
 import io.agentscope.harness.agent.HarnessAgent;
+import io.agentscope.harness.agent.subagent.SubagentDeclaration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -180,6 +181,29 @@ public class AgentFactory implements AgentRegistry {
                 }
             }
 
+            // 子 Agent 编排：引用已配置的 Agent，框架自动查找其配置
+            List<String> subagentNames = config.getSubagents();
+            if (subagentNames != null && !subagentNames.isEmpty()) {
+                for (String subName : subagentNames) {
+                    JAgentProperties.AgentConfig subConfig = properties.getAgents().get(subName);
+                    if (subConfig == null) {
+                        log.warn("Agent [{}] 引用的子 Agent [{}] 未配置，跳过", key, subName);
+                        continue;
+                    }
+                    String subAgentName = subConfig.getName() != null ? subConfig.getName() : subName;
+                    String autoPrompt = buildSubagentPrompt(subAgentName, subConfig.getSysPrompt());
+                    SubagentDeclaration.Builder declBuilder = SubagentDeclaration.builder()
+                            .name(subName)
+                            .description(subAgentName + ": " + extractDescription(subConfig.getSysPrompt()))
+                            .inlineAgentsBody(autoPrompt);
+                    if (subConfig.getModel() != null) {
+                        declBuilder.model(subConfig.getModel());
+                    }
+                    builder.subagent(declBuilder.build());
+                }
+                log.info("Agent [{}] 注册 {} 个子 Agent", key, subagentNames.size());
+            }
+
             return builder.build();
         });
     }
@@ -313,5 +337,46 @@ public class AgentFactory implements AgentRegistry {
      */
     public JAgentProperties.AgentConfig getAgentConfig(String agentKey) {
         return properties.getAgents().get(agentKey);
+    }
+
+    /**
+     * 根据子 Agent 的名称和系统提示词自动生成描述。
+     *
+     * @param name     子 Agent 名称
+     * @param sysPrompt 系统提示词
+     * @return 自动生成的描述
+     */
+    private String buildSubagentPrompt(String name, String sysPrompt) {
+        return String.format("""
+                You are a specialized sub-agent named "%s".
+                
+                Your role:
+                %s
+                
+                Rules:
+                1. Focus solely on the task assigned to you
+                2. Return clear, concise results
+                3. Do not initiate conversations or perform actions beyond your scope
+                4. If you cannot complete the task, explain why briefly
+                """, name, sysPrompt);
+    }
+
+    /**
+     * 从系统提示词中提取简短描述（取第一行非空内容，截断到 50 字符）。
+     *
+     * @param sysPrompt 系统提示词
+     * @return 简短描述
+     */
+    private String extractDescription(String sysPrompt) {
+        if (sysPrompt == null || sysPrompt.isBlank()) {
+            return "A specialized assistant";
+        }
+        // 取第一行非空内容
+        String firstLine = sysPrompt.lines()
+                .filter(line -> !line.isBlank())
+                .findFirst()
+                .orElse("A specialized assistant");
+        // 截断到 50 字符
+        return firstLine.length() > 50 ? firstLine.substring(0, 47) + "..." : firstLine;
     }
 }
