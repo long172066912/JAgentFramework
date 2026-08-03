@@ -62,7 +62,6 @@ public class MockAgent implements Agent {
         );
     }
 
-    @Override
     public boolean supportsStreaming() {
         return false;
     }

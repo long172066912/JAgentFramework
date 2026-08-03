@@ -28,6 +28,14 @@
 | **OpenAI 兼容模型** | `OpenAICompatibleModel` 支持任意 OpenAI 协议端点（TokenPay、OneAPI 等） |
 | **联网搜索多源 Fallback** | `WebSearchSkill` 依次尝试 Bing → DuckDuckGo → 360，自动降级 |
 | **知识库检索** | `KnowledgeSearchSkill` 关键词匹配检索，Agent 优先查知识库再决定是否联网 |
+| **多存储后端** | SPI 插件化，支持 Redis / MySQL / PostgreSQL / H2，通过 YAML 一键切换 |
+| **子 Agent 协同** | 声明 `subagents` 配置，父 Agent 自动调度子 Agent 处理子任务，支持关键词匹配路由 |
+| **配置继承** | 子 Agent 自动继承父 Agent 的 `maxContextTokens` 等关键配置，减少重复声明 |
+| **会话压缩** | 超长对话自动压缩摘要，保持上下文窗口可控 |
+| **Markdown Skill** | 支持 Markdown 文件定义 Skill，热插拔无需编译 |
+| **Plan Mode 规划模式** | 复杂任务先规划再执行，用户确认方案后分步实施 |
+| **OpenTelemetry 链路追踪** | 全链路 Trace，自动降级，兼容任意 OTLP 后端 |
+| **执行权限确认** | 敏感工具调用需用户确认，保障操作安全 |
 
 ---
 
@@ -44,11 +52,16 @@
 │                 jagent-core                      │
 │  agent · skill · model · plan · evaluation       │
 │  prompt · router · feedback · monitor · task     │
+├──────────────────────────────────────────────────┤
+│  jagent-store-jdbc      │  jagent-store-redis    │
+│  MySQL/PostgreSQL/H2    │  Redis (Lettuce)       │
 └──────────────────────────────────────────────────┘
 ```
 
 - **jagent-core** — 纯抽象层，仅依赖 JDK + SLF4J
 - **jagent-agentscope** — 实现层，桥接 AgentScope 2.0 + Spring Boot
+- **jagent-store-jdbc** — 通用 JDBC 分布式存储，通过 SqlDialect 适配 MySQL / PostgreSQL / H2
+- **jagent-store-redis** — Redis 分布式存储，基于 Lettuce 客户端
 - **jagent-demo** — 业务示例，含 Web 聊天界面和完整打标流程
 
 ---
@@ -64,7 +77,7 @@
 
 ```groovy
 dependencies {
-    implementation 'com.jrl.ai:jagent-agentscope:0.5.0'
+    implementation 'com.jrl.ai:jagent-agentscope:0.6.0'
 }
 ```
 
@@ -275,6 +288,15 @@ jagent:
       openai: ${OPENAI_API_KEY}
     base-urls:
       openai: https://your-endpoint/v1
+  store:
+    type: jdbc          # file（默认）| redis | jdbc
+    jdbc:
+      jdbc-url: jdbc:mysql://localhost:3306/jagent
+      username: root
+      password: ${DB_PASSWORD}
+    # redis:
+    #   host: localhost
+    #   port: 6379
   agents:
     translator:
       name: "翻译助手"
@@ -296,8 +318,15 @@ jagent:
       session-enabled: true
       memory-enabled: true
       enable-search: false
+      plan-mode-enabled: false       # 开启后复杂任务先规划再执行
+      tracing-enabled: true          # OpenTelemetry 链路追踪（默认开启，自动降级）
       skill-priorities:
         knowledge_search: 0.9
+      subagents:                     # 子 Agent 协同
+        - id: chat-web
+          keywords: ["联网", "搜索", "最新"]
+        - id: translator
+          keywords: ["翻译", "translate"]
     chat-web:
       name: "联网搜索助手"
       sys-prompt: |
@@ -345,7 +374,7 @@ jagent:
 ./gradlew publishToMavenLocal  # 发布到本地
 ```
 
-发布到 GitHub Packages 需配置 `GITHUB_ACTOR` 和 `GITHUB_TOKEN` 环境变量，或通过创建 GitHub Release（如 `v0.5.0`）触发自动发布。
+发布到 GitHub Packages 需配置 `GITHUB_ACTOR` 和 `GITHUB_TOKEN` 环境变量，或通过创建 GitHub Release（如 `v0.6.0`）触发自动发布。
 
 ---
 

@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'com.jrl.ai'
-version = '0.5.0'
+version = '0.6.0'
 
 // GitHub Packages 发布仓库地址
 ext.githubRepoUrl = "https://maven.pkg.github.com/${System.getenv('GITHUB_REPOSITORY') ?: 'long172066912/JAgentFramework'}"
