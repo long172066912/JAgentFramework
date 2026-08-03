@@ -47,6 +47,7 @@ public class AgentFactory implements AgentRegistry {
     private final JAgentProperties properties;
     private final List<AgentInterceptor> interceptors;
     private final SkillRegistry skillRegistry;
+    private final AgentStateStore defaultStateStore;
     private final ConcurrentHashMap<String, Agent> agentCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, HarnessAgent> harnessCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AgentStateStore> sharedStateStores = new ConcurrentHashMap<>();
@@ -57,7 +58,7 @@ public class AgentFactory implements AgentRegistry {
      * @param properties JAgent 配置属性
      */
     public AgentFactory(JAgentProperties properties) {
-        this(properties, List.of(), null);
+        this(properties, List.of(), null, null);
     }
 
     /**
@@ -67,7 +68,7 @@ public class AgentFactory implements AgentRegistry {
      * @param interceptors Agent 拦截器列表（会被复制为不可变副本）
      */
     public AgentFactory(JAgentProperties properties, List<AgentInterceptor> interceptors) {
-        this(properties, interceptors, null);
+        this(properties, interceptors, null, null);
     }
 
     /**
@@ -78,9 +79,23 @@ public class AgentFactory implements AgentRegistry {
      * @param skillRegistry Skill 注册表（可选，为 null 时不挂载工具）
      */
     public AgentFactory(JAgentProperties properties, List<AgentInterceptor> interceptors, SkillRegistry skillRegistry) {
+        this(properties, interceptors, skillRegistry, null);
+    }
+
+    /**
+     * 创建带拦截器、Skill 注册表和状态存储的 Agent 工厂。
+     *
+     * @param properties      JAgent 配置属性
+     * @param interceptors    Agent 拦截器列表
+     * @param skillRegistry   Skill 注册表（可选，为 null 时不挂载工具）
+     * @param defaultStateStore 默认 AgentStateStore（可选，为 null 时使用 JsonFileAgentStateStore）
+     */
+    public AgentFactory(JAgentProperties properties, List<AgentInterceptor> interceptors,
+                        SkillRegistry skillRegistry, AgentStateStore defaultStateStore) {
         this.properties = properties;
         this.interceptors = interceptors != null ? List.copyOf(interceptors) : List.of();
         this.skillRegistry = skillRegistry;
+        this.defaultStateStore = defaultStateStore;
         // 启动阶段：将父 Agent 的 maxContextTokens 传播到未配置的子 Agent
         propagateMaxContextTokens();
     }
@@ -206,8 +221,9 @@ public class AgentFactory implements AgentRegistry {
             String sessionGroup = config.getSessionGroup();
             if (sessionGroup != null && !sessionGroup.isBlank()) {
                 AgentStateStore sharedStore = sharedStateStores.computeIfAbsent(sessionGroup,
-                        group -> new JsonFileAgentStateStore(
-                                Path.of(properties.getWorkspace(), "shared-sessions", group)));
+                        group -> defaultStateStore != null ? defaultStateStore :
+                                new JsonFileAgentStateStore(
+                                        Path.of(properties.getWorkspace(), "shared-sessions", group)));
                 builder.stateStore(sharedStore);
                 log.info("Agent [{}] 加入共享会话组: {}", key, sessionGroup);
             }

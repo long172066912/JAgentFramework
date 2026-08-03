@@ -2,4 +2,6 @@ rootProject.name = 'JAgentFramework'
 
 include 'jagent-core'
 include 'jagent-agentscope'
+include 'jagent-store-redis'
+include 'jagent-store-mysql'
 include 'jagent-demo'

@@ -6,6 +6,7 @@ import com.jrl.ai.agent.agentscope.model.AgentScopeModelRegistry;
 import com.jrl.ai.agent.agentscope.prompt.InMemoryPromptRegistry;
 import com.jrl.ai.agent.agentscope.router.DefaultRouter;
 import com.jrl.ai.agent.agentscope.skill.SkillScoringInterceptor;
+import com.jrl.ai.agent.agentscope.storage.DistributedStoreProvider;
 import com.jrl.ai.agent.agentscope.storage.JsonFileKVStore;
 import com.jrl.ai.agent.agentscope.adapter.AgentScopeModelAdapter;
 import com.jrl.ai.agent.agentscope.model.OpenAICompatibleModel;
@@ -16,6 +17,7 @@ import com.jrl.ai.agent.core.agent.AgentLifecycle;
 import com.jrl.ai.agent.core.agent.AgentRegistry;
 import com.jrl.ai.agent.core.evaluation.*;
 import com.jrl.ai.agent.core.feedback.OutputFeedbackHandler;
+import com.jrl.ai.agent.core.memory.MemoryStore;
 import com.jrl.ai.agent.core.model.ModelRegistry;
 import com.jrl.ai.agent.core.monitor.MetricsInterceptor;
 import com.jrl.ai.agent.core.plan.Planner;
@@ -27,6 +29,7 @@ import com.jrl.ai.agent.core.skill.Skill;
 import com.jrl.ai.agent.core.skill.SkillRegistry;
 import com.jrl.ai.agent.core.skill.SkillScorer;
 import com.jrl.ai.agent.core.storage.KVStore;
+import io.agentscope.core.state.AgentStateStore;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -78,13 +81,15 @@ public class JAgentAutoConfiguration {
      * @param interceptors   同步拦截器列表
      * @param skillRegistries 所有 SkillRegistry Bean（可选）
      * @param skills         所有独立 Skill Bean（可选）
+     * @param stateStore     Agent 状态存储（可选，分布式模式下注入 Redis/MySQL 实现）
      * @return AgentFactory 实例
      */
     @Bean
     public AgentFactory agentFactory(JAgentProperties properties,
                                      List<AgentInterceptor> interceptors,
                                      ObjectProvider<List<SkillRegistry>> skillRegistries,
-                                     ObjectProvider<List<Skill>> skills) {
+                                     ObjectProvider<List<Skill>> skills,
+                                     ObjectProvider<AgentStateStore> stateStore) {
         log.info("[AgentFactory] Creating AgentFactory with {} sync interceptors",
                 interceptors.size());
 
@@ -99,7 +104,7 @@ public class JAgentAutoConfiguration {
                     unifiedRegistry.all().stream().map(Skill::name).toList());
         }
 
-        return new AgentFactory(properties, interceptors, unifiedRegistry);
+        return new AgentFactory(properties, interceptors, unifiedRegistry, stateStore.getIfAvailable());
     }
 
     /**
@@ -135,14 +140,106 @@ public class JAgentAutoConfiguration {
     }
 
     /**
-     * 注册 KV 存储 — 文件持久化实现。
+     * 注册 KV 存储 — 根据 {@code jagent.store.type} 选择实现。
      *
-     * @param properties JAgent 配置属性（取 workspace 路径）
-     * @return JsonFileKVStore 实例
+     * <ul>
+     *   <li>{@code file}（默认）— 本地 JSON 文件</li>
+     *   <li>{@code redis} — 通过 SPI 发现 RedisStoreProvider</li>
+     *   <li>{@code mysql} — 通过 SPI 发现 MysqlStoreProvider</li>
+     * </ul>
+     *
+     * @param properties JAgent 配置属性
+     * @return KVStore 实例
      */
     @Bean
     public KVStore kvStore(JAgentProperties properties) {
-        return new JsonFileKVStore(Path.of(properties.getWorkspace(), "kvstore"));
+        String storeType = properties.getStore().getType();
+        if ("file".equalsIgnoreCase(storeType) || storeType.isBlank()) {
+            log.info("[KVStore] Using file-based storage: {}", properties.getWorkspace());
+            return new JsonFileKVStore(Path.of(properties.getWorkspace(), "kvstore"));
+        }
+        DistributedStoreProvider provider = findProvider(storeType);
+        Map<String, String> config = getStoreConfig(properties, storeType);
+        log.info("[KVStore] Using {} distributed storage", storeType);
+        return provider.createKVStore(config);
+    }
+
+    /**
+     * 注册记忆存储 — 根据 {@code jagent.store.type} 选择实现。
+     *
+     * @param properties JAgent 配置属性
+     * @return MemoryStore 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public MemoryStore memoryStore(JAgentProperties properties) {
+        String storeType = properties.getStore().getType();
+        if ("file".equalsIgnoreCase(storeType) || storeType.isBlank()) {
+            log.info("[MemoryStore] No file-based persistent MemoryStore, using no-op");
+            return new NoOpMemoryStore();
+        }
+        DistributedStoreProvider provider = findProvider(storeType);
+        Map<String, String> config = getStoreConfig(properties, storeType);
+        log.info("[MemoryStore] Using {} distributed storage", storeType);
+        return provider.createMemoryStore(config);
+    }
+
+    /**
+     * 注册 Agent 状态存储 — 根据 {@code jagent.store.type} 选择实现。
+     *
+     * @param properties JAgent 配置属性
+     * @return AgentStateStore 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public AgentStateStore agentStateStore(JAgentProperties properties) {
+        String storeType = properties.getStore().getType();
+        if ("file".equalsIgnoreCase(storeType) || storeType.isBlank()) {
+            log.info("[AgentStateStore] Using file-based storage: {}", properties.getWorkspace());
+            return new io.agentscope.core.state.JsonFileAgentStateStore(
+                    Path.of(properties.getWorkspace(), "agents"));
+        }
+        DistributedStoreProvider provider = findProvider(storeType);
+        Map<String, String> config = getStoreConfig(properties, storeType);
+        log.info("[AgentStateStore] Using {} distributed storage", storeType);
+        return provider.createAgentStateStore(config);
+    }
+
+    /**
+     * 通过 SPI 查找指定类型的 DistributedStoreProvider。
+     */
+    private DistributedStoreProvider findProvider(String storeType) {
+        ServiceLoader<DistributedStoreProvider> loader = ServiceLoader.load(DistributedStoreProvider.class);
+        for (DistributedStoreProvider provider : loader) {
+            if (provider.name().equalsIgnoreCase(storeType)) {
+                return provider;
+            }
+        }
+        throw new IllegalStateException(
+                "No DistributedStoreProvider found for type '" + storeType
+                        + "'. Make sure jagent-store-" + storeType + " is on the classpath.");
+    }
+
+    /**
+     * 从 StoreConfig 中提取对应后端的配置 Map。
+     */
+    private Map<String, String> getStoreConfig(JAgentProperties properties, String storeType) {
+        return switch (storeType.toLowerCase()) {
+            case "redis" -> properties.getStore().getRedis();
+            case "mysql" -> properties.getStore().getMysql();
+            default -> Map.of();
+        };
+    }
+
+    /**
+     * 无操作的 MemoryStore 实现（file 模式下的默认占位）。
+     */
+    private static class NoOpMemoryStore implements MemoryStore {
+        @Override public void put(String namespace, String key, String value) {}
+        @Override public Optional<String> get(String namespace, String key) { return Optional.empty(); }
+        @Override public List<String> keys(String namespace) { return List.of(); }
+        @Override public void remove(String namespace, String key) {}
+        @Override public void clear(String namespace) {}
     }
 
     /**

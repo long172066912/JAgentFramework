@@ -16,6 +16,7 @@ jar {
 dependencies {
     implementation project(':jagent-core')
     implementation project(':jagent-agentscope')
+    implementation project(':jagent-store-redis')  // 或 ':jagent-store-mysql'
 
     // Spring Boot WebFlux（响应式 + SSE 流式输出）
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
@@ -27,6 +28,7 @@ dependencies {
     // AgentScope 模型提供商
     implementation 'io.agentscope:agentscope-extensions-model-dashscope:2.0.0'
     implementation 'io.agentscope:agentscope-extensions-model-openai:2.0.0'
+
 
     // 测试
     testImplementation 'org.springframework.boot:spring-boot-starter-test'

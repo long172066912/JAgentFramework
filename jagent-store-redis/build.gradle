@@ -1,0 +1,9 @@
+description = 'JAgent Redis 分布式存储 - 基于 Lettuce 的 KVStore/MemoryStore/AgentStateStore 实现'
+
+dependencies {
+    api project(':jagent-core')
+    api project(':jagent-agentscope')
+
+    // Lettuce Redis 客户端
+    api 'io.lettuce:lettuce-core:6.3.2.RELEASE'
+}

@@ -39,6 +39,9 @@ public class JAgentProperties {
     /** 评测相关配置 */
     private EvaluationConfig evaluation = new EvaluationConfig();
 
+    /** 分布式存储配置 */
+    private StoreConfig store = new StoreConfig();
+
     public Map<String, AgentConfig> getAgents() { return agents; }
     public void setAgents(Map<String, AgentConfig> agents) { this.agents = agents; }
 
@@ -50,6 +53,9 @@ public class JAgentProperties {
 
     public EvaluationConfig getEvaluation() { return evaluation; }
     public void setEvaluation(EvaluationConfig evaluation) { this.evaluation = evaluation; }
+
+    public StoreConfig getStore() { return store; }
+    public void setStore(StoreConfig store) { this.store = store; }
 
     /**
      * 模型相关配置。
@@ -122,6 +128,40 @@ public class JAgentProperties {
 
         public double getConfidenceThreshold() { return confidenceThreshold; }
         public void setConfidenceThreshold(double confidenceThreshold) { this.confidenceThreshold = confidenceThreshold; }
+    }
+
+    /**
+     * 分布式存储配置。
+     *
+     * <p>示例 YAML：
+     * <pre>{@code
+     * jagent:
+     *   store:
+     *     type: redis   # redis | mysql | file(默认)
+     *     redis:
+     *       host: localhost
+     *       port: 6379
+     *     mysql:
+     *       jdbc-url: jdbc:mysql://localhost:3306/jagent
+     *       username: root
+     * }</pre>
+     */
+    public static class StoreConfig {
+        /** 存储类型：file（默认，本地文件）、redis、mysql */
+        private String type = "file";
+        /** Redis 连接配置（当 type=redis 时生效） */
+        private Map<String, String> redis = new LinkedHashMap<>();
+        /** MySQL 连接配置（当 type=mysql 时生效） */
+        private Map<String, String> mysql = new LinkedHashMap<>();
+
+        public String getType() { return type; }
+        public void setType(String type) { this.type = type; }
+
+        public Map<String, String> getRedis() { return redis; }
+        public void setRedis(Map<String, String> redis) { this.redis = redis; }
+
+        public Map<String, String> getMysql() { return mysql; }
+        public void setMysql(Map<String, String> mysql) { this.mysql = mysql; }
     }
 
     /**

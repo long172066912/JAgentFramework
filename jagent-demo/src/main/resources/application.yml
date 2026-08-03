@@ -2,6 +2,9 @@ server:
   port: 8080
 
 jagent:
+# 配置多节点信息共享
+#  store:
+#    type: redis
   workspace: "./workspace"
   model:
     api-keys:
