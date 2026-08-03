@@ -1,12 +1,15 @@
 package com.jrl.ai.agent.demo.tagging.controller;
 
+import com.jrl.ai.agent.agentscope.async.AsyncTaskManager;
 import com.jrl.ai.agent.core.task.AgentResponse;
 import com.jrl.ai.agent.demo.tagging.client.MockVectorStorageClient;
 import com.jrl.ai.agent.demo.tagging.model.*;
 import com.jrl.ai.agent.demo.tagging.mq.CallbackProducer;
 import com.jrl.ai.agent.demo.tagging.mq.TaskConsumer;
 import com.jrl.ai.agent.demo.tagging.service.TaggingService;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -170,6 +173,86 @@ public class TaggingController {
         }).subscribeOn(Schedulers.boundedElastic());
     }
 
+    // ========== 异步打标（短连接 + 用户确认） ==========
+
+    /**
+     * 异步执行打标 — 立即返回 taskId，客户端可断开。
+     *
+     * <pre>
+     * POST /api/tagging/tag-async
+     * {
+     *   "contentId": "prod_001",
+     *   "contentType": "product",
+     *   "contentText": "复古胶片风格连衣裙...",
+     *   "requiredTagCount": 5
+     * }
+     * → { "taskId": "xxx-xxx", "message": "任务已提交" }
+     * </pre>
+     *
+     * <p>当 Agent 需要写入向量库时，任务暂停等待确认。
+     * 客户端通过 POST /api/tagging/confirm 确认后恢复执行。
+     */
+    @PostMapping("/tag-async")
+    public Mono<Map<String, Object>> tagAsync(@RequestBody TagRequest request) {
+        return Mono.fromCallable(() -> {
+            String taskId = taggingService.tagAsync(
+                    request.contentId(),
+                    request.contentType(),
+                    request.contentText(),
+                    request.requiredTagCount() != null ? request.requiredTagCount() : 5
+            );
+            return Map.<String, Object>of(
+                    "taskId", taskId,
+                    "message", "任务已提交，可通过 /api/tagging/task/" + taskId + " 查询状态"
+            );
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * 确认打标任务 — 用户确认后恢复执行。
+     *
+     * <pre>
+     * POST /api/tagging/confirm
+     * { "taskId": "xxx-xxx", "confirmed": true }
+     * </pre>
+     *
+     * <p>confirmed=true 允许 Agent 写入向量库，false 拒绝。
+     */
+    @PostMapping("/confirm")
+    public Mono<AsyncTaskManager.TaskInfo> confirm(@RequestBody ConfirmRequest request) {
+        return Mono.fromCallable(() ->
+                taggingService.confirmTag(request.taskId(), request.confirmed())
+        ).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * 查询打标任务状态。
+     *
+     * <pre>
+     * GET /api/tagging/task/{taskId}
+     * </pre>
+     */
+    @GetMapping("/task/{taskId}")
+    public Mono<AsyncTaskManager.TaskInfo> getTask(@PathVariable String taskId) {
+        return Mono.fromCallable(() ->
+                taggingService.getTagTaskInfo(taskId)
+        ).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * SSE 订阅打标任务事件流。
+     *
+     * <pre>
+     * GET /api/tagging/task/{taskId}/events
+     * </pre>
+     *
+     * <p>实时推送：text_delta / need_confirm / completed / failed
+     */
+    @GetMapping(value = "/task/{taskId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<AsyncTaskManager.TaskEvent> taskEvents(@PathVariable String taskId) {
+        return taggingService.subscribeTagTask(taskId);
+    }
+
     /**
      * 获取系统状态。
      */
@@ -244,5 +327,13 @@ public class TaggingController {
             int topK,
             /** 最小相似度阈值 */
             double minScore
+    ) {}
+
+    /** 确认请求体。 */
+    public record ConfirmRequest(
+            /** 任务标识 */
+            String taskId,
+            /** 是否确认（true=允许写入向量库，false=拒绝） */
+            boolean confirmed
     ) {}
 }

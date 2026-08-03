@@ -1,6 +1,7 @@
 package com.jrl.ai.agent.demo.service;
 
 import com.jrl.ai.agent.agentscope.adapter.AgentScopeAgentAdapter;
+import com.jrl.ai.agent.agentscope.async.AsyncTaskManager;
 import com.jrl.ai.agent.agentscope.config.AgentExecutor;
 import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.context.AgentContext;
@@ -26,9 +27,11 @@ public class AgentService {
     private static final Logger log = LoggerFactory.getLogger(AgentService.class);
 
     private final AgentExecutor agentExecutor;
+    private final AsyncTaskManager asyncTaskManager;
 
-    public AgentService(AgentExecutor agentExecutor) {
+    public AgentService(AgentExecutor agentExecutor, AsyncTaskManager asyncTaskManager) {
         this.agentExecutor = agentExecutor;
+        this.asyncTaskManager = asyncTaskManager;
     }
 
     /**
@@ -91,6 +94,59 @@ public class AgentService {
                     sink::error
             );
         });
+    }
+
+    /**
+     * 异步执行任务 — 立即返回 taskId，支持短连接。
+     *
+     * <p>任务在后台异步执行，客户端可通过 taskId 查询状态或订阅事件流。
+     *
+     * @param agentKey  Agent 标识
+     * @param text      用户输入文本
+     * @param sessionId 会话 ID
+     * @param userId    用户 ID
+     * @return taskId 任务标识
+     */
+    public String executeAsync(String agentKey, String text, String sessionId, String userId) {
+        Agent agent = agentExecutor.getAgentFactory().getAgent(agentKey);
+        if (!(agent instanceof AgentScopeAgentAdapter adapter)) {
+            throw new UnsupportedOperationException(
+                    "Agent " + agentKey + " does not support async execution");
+        }
+
+        AgentContext context = AgentContext.builder()
+                .sessionId(sessionId)
+                .userId(userId)
+                .build();
+
+        String taskId = asyncTaskManager.execute(adapter, ChatMessage.user(text), context);
+        log.info("[Async] Task {} submitted for agent={}", taskId, agentKey);
+        return taskId;
+    }
+
+    /**
+     * 确认异步任务并恢复执行。
+     *
+     * @param taskId    任务标识
+     * @param confirmed 是否确认
+     * @return 任务信息
+     */
+    public AsyncTaskManager.TaskInfo confirmTask(String taskId, boolean confirmed) {
+        return asyncTaskManager.confirmAndResume(taskId, confirmed);
+    }
+
+    /**
+     * 获取异步任务信息。
+     */
+    public AsyncTaskManager.TaskInfo getTaskInfo(String taskId) {
+        return asyncTaskManager.getTaskInfo(taskId);
+    }
+
+    /**
+     * 订阅异步任务事件流（用于 SSE 推送）。
+     */
+    public Flux<AsyncTaskManager.TaskEvent> subscribeTask(String taskId) {
+        return asyncTaskManager.subscribe(taskId);
     }
 
     /**

@@ -1,7 +1,10 @@
 package com.jrl.ai.agent.demo.tagging.service;
 
+import com.jrl.ai.agent.agentscope.adapter.AgentScopeAgentAdapter;
+import com.jrl.ai.agent.agentscope.async.AsyncTaskManager;
 import com.jrl.ai.agent.agentscope.config.AgentExecutor;
 import com.jrl.ai.agent.agentscope.config.AgentFactory;
+import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.io.ChatMessage;
 import com.jrl.ai.agent.core.task.AgentResponse;
@@ -11,6 +14,7 @@ import com.jrl.ai.agent.demo.util.JsonUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 
 import java.util.*;
 
@@ -35,11 +39,14 @@ public class TaggingService {
     private final AgentExecutor agentExecutor;
     private final AgentFactory agentFactory;
     private final VectorStorageClient vectorClient;
+    private final AsyncTaskManager asyncTaskManager;
 
-    public TaggingService(AgentExecutor agentExecutor, AgentFactory agentFactory, VectorStorageClient vectorClient) {
+    public TaggingService(AgentExecutor agentExecutor, AgentFactory agentFactory,
+                          VectorStorageClient vectorClient, AsyncTaskManager asyncTaskManager) {
         this.agentExecutor = agentExecutor;
         this.agentFactory = agentFactory;
         this.vectorClient = vectorClient;
+        this.asyncTaskManager = asyncTaskManager;
     }
 
     /**
@@ -104,6 +111,70 @@ public class TaggingService {
      */
     public Map<String, TagInfo> getTagsByIds(List<String> ids) {
         return vectorClient.batchGet(TAG_COLLECTION, ids);
+    }
+
+    // ==================== 异步打标（短连接 + 用户确认） ====================
+
+    /**
+     * 异步执行打标任务 — 立即返回 taskId，支持短连接。
+     *
+     * <p>当 tagger Agent 调用需要确认的工具（如 vector_upsert）时，
+     * 任务暂停等待用户确认。客户端可通过 taskId 查询状态或确认恢复。
+     *
+     * @param contentId   内容 ID
+     * @param contentType 内容类型
+     * @param contentText 内容文本
+     * @param requiredTagCount 要求的标签数量
+     * @return taskId 任务标识
+     */
+    public String tagAsync(String contentId, String contentType,
+                           String contentText, int requiredTagCount) {
+        Agent agent = agentFactory.getAgent("tagger");
+        if (!(agent instanceof AgentScopeAgentAdapter adapter)) {
+            throw new UnsupportedOperationException("tagger agent does not support async");
+        }
+
+        Map<String, Object> variables = Map.of(
+                "contentType", contentType,
+                "contentText", contentText,
+                "requiredTagCount", requiredTagCount
+        );
+        String prompt = agentFactory.renderPrompt("tagger", variables);
+
+        AgentContext context = AgentContext.builder()
+                .sessionId(UUID.randomUUID().toString())
+                .userId("tagging-system")
+                .build();
+
+        String taskId = asyncTaskManager.execute(adapter, ChatMessage.user(prompt), context);
+        log.info("[Tagging] Async task {} submitted for contentId={}", taskId, contentId);
+        return taskId;
+    }
+
+    /**
+     * 确认打标任务 — 用户确认后恢复执行。
+     *
+     * @param taskId    任务标识
+     * @param confirmed 是否确认（true=允许写入向量库，false=拒绝）
+     * @return 任务信息
+     */
+    public AsyncTaskManager.TaskInfo confirmTag(String taskId, boolean confirmed) {
+        log.info("[Tagging] Task {} confirmed={}", taskId, confirmed);
+        return asyncTaskManager.confirmAndResume(taskId, confirmed);
+    }
+
+    /**
+     * 获取打标任务状态。
+     */
+    public AsyncTaskManager.TaskInfo getTagTaskInfo(String taskId) {
+        return asyncTaskManager.getTaskInfo(taskId);
+    }
+
+    /**
+     * 订阅打标任务事件流（SSE 推送）。
+     */
+    public Flux<AsyncTaskManager.TaskEvent> subscribeTagTask(String taskId) {
+        return asyncTaskManager.subscribe(taskId);
     }
 
     /**

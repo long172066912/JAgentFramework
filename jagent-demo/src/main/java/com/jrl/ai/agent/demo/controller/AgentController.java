@@ -1,5 +1,6 @@
 package com.jrl.ai.agent.demo.controller;
 
+import com.jrl.ai.agent.agentscope.async.AsyncTaskManager;
 import com.jrl.ai.agent.core.task.AgentResponse;
 import com.jrl.ai.agent.demo.service.AgentService;
 import org.springframework.http.MediaType;
@@ -8,6 +9,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
 
@@ -67,6 +69,63 @@ public class AgentController {
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
+    // ==================== 异步任务（短连接） ====================
+
+    /**
+     * 异步执行任务 — 立即返回 taskId，客户端可断开。
+     *
+     * <p>任务在后台异步执行，客户端可通过 taskId 查询状态或订阅事件流。
+     * 当 Agent 遇到需要确认的工具时，任务暂停，通过事件流通知客户端。
+     */
+    @PostMapping("/execute")
+    public Mono<Map<String, String>> executeAsync(@RequestBody ChatRequest request) {
+        return Mono.fromCallable(() -> {
+            String sessionId = request.sessionId() != null ? request.sessionId() : UUID.randomUUID().toString();
+            String userId = request.userId() != null ? request.userId() : "anonymous";
+            String taskId = agentService.executeAsync(request.agentKey(), request.text(), sessionId, userId);
+            return Map.of("taskId", taskId, "sessionId", sessionId);
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * 确认异步任务 — 用户确认后恢复执行。
+     *
+     * @param request 确认请求（taskId + confirmed）
+     * @return 任务信息
+     */
+    @PostMapping("/confirm")
+    public Mono<AsyncTaskManager.TaskInfo> confirm(@RequestBody ConfirmRequest request) {
+        return Mono.fromCallable(() ->
+                agentService.confirmTask(request.taskId(), request.confirmed())
+        ).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * 查询异步任务状态。
+     *
+     * @param taskId 任务标识
+     * @return 任务信息
+     */
+    @GetMapping("/task/{taskId}")
+    public Mono<AsyncTaskManager.TaskInfo> getTask(@PathVariable String taskId) {
+        return Mono.fromCallable(() ->
+                agentService.getTaskInfo(taskId)
+        ).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * SSE 订阅异步任务事件流。
+     *
+     * <p>实时推送任务状态变化：text_delta / need_confirm / completed / failed。
+     *
+     * @param taskId 任务标识
+     * @return SSE 事件流
+     */
+    @GetMapping(value = "/task/{taskId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<AsyncTaskManager.TaskEvent> taskEvents(@PathVariable String taskId) {
+        return agentService.subscribeTask(taskId);
+    }
+
     /**
      * 对话请求体。
      */
@@ -79,5 +138,15 @@ public class AgentController {
             String sessionId,
             /** 用户 ID（可选） */
             String userId
+    ) {}
+
+    /**
+     * 确认请求体。
+     */
+    public record ConfirmRequest(
+            /** 任务标识 */
+            String taskId,
+            /** 是否确认 */
+            boolean confirmed
     ) {}
 }

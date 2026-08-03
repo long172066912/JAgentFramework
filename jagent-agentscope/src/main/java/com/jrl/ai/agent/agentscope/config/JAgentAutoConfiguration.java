@@ -1,6 +1,7 @@
 package com.jrl.ai.agent.agentscope.config;
 
 import com.jrl.ai.agent.agentscope.agent.AgentLifecycleManager;
+import com.jrl.ai.agent.agentscope.async.AsyncTaskManager;
 import com.jrl.ai.agent.agentscope.model.AgentScopeModelRegistry;
 import com.jrl.ai.agent.agentscope.prompt.InMemoryPromptRegistry;
 import com.jrl.ai.agent.agentscope.router.DefaultRouter;
@@ -429,6 +430,18 @@ public class JAgentAutoConfiguration {
                 evaluationStore.getIfAvailable(),
                 optimizationReportStore.getIfAvailable()
         );
+    }
+
+    /**
+     * 注册异步任务管理器 — 支持短连接模式下的用户确认机制。
+     *
+     * @return AsyncTaskManager 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public AsyncTaskManager asyncTaskManager() {
+        log.info("[AsyncTaskManager] Creating AsyncTaskManager");
+        return new AsyncTaskManager();
     }
 
     /**
