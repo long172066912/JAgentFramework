@@ -14,6 +14,7 @@ import io.agentscope.core.skill.repository.FileSystemSkillRepository;
 import io.agentscope.core.state.AgentStateStore;
 import io.agentscope.core.state.JsonFileAgentStateStore;
 import io.agentscope.core.tool.Toolkit;
+import io.agentscope.core.tracing.OtelTracingMiddleware;
 import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.subagent.SubagentDeclaration;
@@ -152,6 +153,18 @@ public class AgentFactory implements AgentRegistry {
             if (!config.isMemoryEnabled()) {
                 builder.disableMemoryTools()
                        .disableMemoryHooks();
+            }
+
+            // 按需开启 Plan Mode 规划模式（复杂任务先规划再执行）
+            if (config.isPlanModeEnabled()) {
+                builder.enablePlanMode();
+                log.info("Agent [{}] 已启用 Plan Mode 规划模式", key);
+            }
+
+            // 按需开启 OpenTelemetry 链路追踪（可视化执行链路）
+            if (config.isTracingEnabled()) {
+                builder.middleware(new OtelTracingMiddleware());
+                log.info("Agent [{}] 已启用 OpenTelemetry 链路追踪", key);
             }
 
             // 如果 YAML 中配置了 API Key，直接构建 Model 对象（避免依赖环境变量）
