@@ -27,7 +27,7 @@ import java.util.Map;
 public interface DistributedStoreProvider {
 
     /**
-     * 提供器标识（如 "redis"、"mysql"），用于 YAML 配置匹配。
+     * 提供器标识（如 "redis"、"jdbc"），用于 YAML 配置匹配。
      *
      * @return 提供器名称
      */

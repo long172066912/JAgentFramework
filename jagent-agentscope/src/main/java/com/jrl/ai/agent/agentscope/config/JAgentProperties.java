@@ -137,22 +137,22 @@ public class JAgentProperties {
      * <pre>{@code
      * jagent:
      *   store:
-     *     type: redis   # redis | mysql | file(默认)
+     *     type: jdbc   # jdbc | redis | file(默认)
      *     redis:
      *       host: localhost
      *       port: 6379
-     *     mysql:
+     *     jdbc:
      *       jdbc-url: jdbc:mysql://localhost:3306/jagent
      *       username: root
      * }</pre>
      */
     public static class StoreConfig {
-        /** 存储类型：file（默认，本地文件）、redis、mysql */
+        /** 存储类型：file（默认，本地文件）、redis、jdbc */
         private String type = "file";
         /** Redis 连接配置（当 type=redis 时生效） */
         private Map<String, String> redis = new LinkedHashMap<>();
-        /** MySQL 连接配置（当 type=mysql 时生效） */
-        private Map<String, String> mysql = new LinkedHashMap<>();
+        /** JDBC 连接配置（当 type=jdbc 时生效，支持 MySQL/PostgreSQL/H2） */
+        private Map<String, String> jdbc = new LinkedHashMap<>();
 
         public String getType() { return type; }
         public void setType(String type) { this.type = type; }
@@ -160,8 +160,8 @@ public class JAgentProperties {
         public Map<String, String> getRedis() { return redis; }
         public void setRedis(Map<String, String> redis) { this.redis = redis; }
 
-        public Map<String, String> getMysql() { return mysql; }
-        public void setMysql(Map<String, String> mysql) { this.mysql = mysql; }
+        public Map<String, String> getJdbc() { return jdbc; }
+        public void setJdbc(Map<String, String> jdbc) { this.jdbc = jdbc; }
     }
 
     /**

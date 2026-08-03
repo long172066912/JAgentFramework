@@ -145,7 +145,7 @@ public class JAgentAutoConfiguration {
      * <ul>
      *   <li>{@code file}（默认）— 本地 JSON 文件</li>
      *   <li>{@code redis} — 通过 SPI 发现 RedisStoreProvider</li>
-     *   <li>{@code mysql} — 通过 SPI 发现 MysqlStoreProvider</li>
+     *   <li>{@code jdbc} — 通过 SPI 发现 JdbcStoreProvider（支持 MySQL/PostgreSQL/H2）</li>
      * </ul>
      *
      * @param properties JAgent 配置属性
@@ -226,7 +226,7 @@ public class JAgentAutoConfiguration {
     private Map<String, String> getStoreConfig(JAgentProperties properties, String storeType) {
         return switch (storeType.toLowerCase()) {
             case "redis" -> properties.getStore().getRedis();
-            case "mysql" -> properties.getStore().getMysql();
+            case "jdbc" -> properties.getStore().getJdbc();
             default -> Map.of();
         };
     }
