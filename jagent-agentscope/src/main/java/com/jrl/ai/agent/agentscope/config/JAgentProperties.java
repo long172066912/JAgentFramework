@@ -158,6 +158,10 @@ public class JAgentProperties {
         private boolean tracingEnabled = true;
         /** 最大上下文 Token 数（超过后自动压缩历史，0 表示不限制） */
         private int maxContextTokens = 0;
+        /** 权限模式：default（默认，需显式允许）/ bypass（全部允许）/ dont_ask（ASK 转为 DENY） */
+        private String permissionMode = "default";
+        /** 需要用户确认的工具列表（危险操作前暂停等待确认） */
+        private List<String> requireConfirmTools = new ArrayList<>();
         /** 共享会话组标识，同组 Agent 共享对话历史（可选） */
         private String sessionGroup;
         /** Markdown Skill 目录（相对于 workspace，可选，启用后自动热加载 SKILL.md） */
@@ -209,6 +213,12 @@ public class JAgentProperties {
 
         public int getMaxContextTokens() { return maxContextTokens; }
         public void setMaxContextTokens(int maxContextTokens) { this.maxContextTokens = maxContextTokens; }
+
+        public String getPermissionMode() { return permissionMode; }
+        public void setPermissionMode(String permissionMode) { this.permissionMode = permissionMode; }
+
+        public List<String> getRequireConfirmTools() { return requireConfirmTools; }
+        public void setRequireConfirmTools(List<String> requireConfirmTools) { this.requireConfirmTools = requireConfirmTools; }
 
         public String getSessionGroup() { return sessionGroup; }
         public void setSessionGroup(String sessionGroup) { this.sessionGroup = sessionGroup; }

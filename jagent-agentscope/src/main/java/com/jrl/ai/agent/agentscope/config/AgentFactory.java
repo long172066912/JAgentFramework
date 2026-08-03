@@ -15,6 +15,10 @@ import io.agentscope.core.state.AgentStateStore;
 import io.agentscope.core.state.JsonFileAgentStateStore;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.tracing.OtelTracingMiddleware;
+import io.agentscope.core.permission.PermissionBehavior;
+import io.agentscope.core.permission.PermissionContextState;
+import io.agentscope.core.permission.PermissionMode;
+import io.agentscope.core.permission.PermissionRule;
 import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.memory.compaction.CompactionConfig;
@@ -179,6 +183,9 @@ public class AgentFactory implements AgentRegistry {
                 builder.toolResultEviction(ToolResultEvictionConfig.defaults());
                 log.info("Agent [{}] 已启用上下文压缩，maxContextTokens={}", key, maxTokens);
             }
+
+            // 配置权限引擎（用户确认机制）
+            configurePermission(builder, config, key);
 
             // 如果 YAML 中配置了 API Key，直接构建 Model 对象（避免依赖环境变量）
             Model model = buildModel(config.getModel(), config.isEnableSearch(), config.isEnableThinking());
@@ -476,5 +483,46 @@ public class AgentFactory implements AgentRegistry {
                 }
             }
         }
+    }
+
+    /**
+     * 配置权限引擎，支持用户确认机制。
+     *
+     * <p>当配置了 requireConfirmTools 时，为指定工具添加 ASK 规则，
+     * 执行这些工具前会发出 RequireUserConfirmEvent 暂停等待用户确认。
+     */
+    private void configurePermission(HarnessAgent.Builder builder, JAgentProperties.AgentConfig config, String agentKey) {
+        List<String> requireConfirmTools = config.getRequireConfirmTools();
+        String permissionModeStr = config.getPermissionMode();
+
+        // 如果没有配置需要确认的工具，且使用默认权限模式，则不配置权限引擎
+        if ((requireConfirmTools == null || requireConfirmTools.isEmpty())
+                && ("default".equals(permissionModeStr) || permissionModeStr == null)) {
+            return;
+        }
+
+        PermissionMode mode = PermissionMode.DEFAULT;
+        if (permissionModeStr != null && !permissionModeStr.isBlank()) {
+            try {
+                mode = PermissionMode.fromString(permissionModeStr);
+            } catch (IllegalArgumentException e) {
+                log.warn("Agent [{}] 无效的 permissionMode: {}，使用默认值 default", agentKey, permissionModeStr);
+            }
+        }
+
+        PermissionContextState.Builder permBuilder = PermissionContextState.builder().mode(mode);
+
+        // 为需要确认的工具添加 ASK 规则
+        if (requireConfirmTools != null && !requireConfirmTools.isEmpty()) {
+            for (String toolName : requireConfirmTools) {
+                // ASK 规则会在执行前触发 RequireUserConfirmEvent
+                PermissionRule rule = new PermissionRule(toolName, null, PermissionBehavior.ASK, "config");
+                permBuilder.addAskRule(toolName, rule);
+                log.info("Agent [{}] 工具 [{}] 已配置用户确认", agentKey, toolName);
+            }
+        }
+
+        builder.permissionContext(permBuilder.build());
+        log.info("Agent [{}] 已配置权限引擎，mode={}", agentKey, mode);
     }
 }
