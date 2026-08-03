@@ -7,7 +7,7 @@
  *
  *      http://www.apache.org/licenses/LICENSE-2.0
  */
-package com.jrl.ai.agent.agentscope.storage.mysql;
+package com.jrl.ai.agent.agentscope.storage.jdbc;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -22,30 +22,30 @@ import java.sql.*;
 import java.util.*;
 
 /**
- * 基于 MySQL 的 Agent 状态存储实现。
+ * 基于 JDBC 的 Agent 状态存储实现，通过 {@link SqlDialect} 适配不同数据库。
  *
  * <p>表：{@code jagent_state}（user_id + session_id + state_key 联合主键）
  * <p>List 类型的 state 序列化为 JSON 数组存储。
  */
-public class MysqlAgentStateStore implements AgentStateStore {
+public class JdbcAgentStateStore implements AgentStateStore {
 
-    private static final Logger log = LoggerFactory.getLogger(MysqlAgentStateStore.class);
+    private static final Logger log = LoggerFactory.getLogger(JdbcAgentStateStore.class);
     private static final String ANON_USER = "__anon__";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final DataSource dataSource;
+    private final SqlDialect dialect;
 
-    public MysqlAgentStateStore(DataSource dataSource) {
+    public JdbcAgentStateStore(DataSource dataSource, SqlDialect dialect) {
         this.dataSource = dataSource;
+        this.dialect = dialect;
     }
 
     @Override
     public void save(String userId, String sessionId, String key, State value) {
         String uid = normalizeUser(userId);
         String json = toJson(value);
-        String sql = "INSERT INTO jagent_state (user_id, session_id, state_key, state_value, state_type, updated_at) "
-                + "VALUES (?, ?, ?, ?, 'SINGLE', NOW()) "
-                + "ON DUPLICATE KEY UPDATE state_value = VALUES(state_value), state_type = 'SINGLE', updated_at = NOW()";
+        String sql = dialect.stateUpsert();
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, uid);
@@ -62,9 +62,9 @@ public class MysqlAgentStateStore implements AgentStateStore {
     public void save(String userId, String sessionId, String key, List<? extends State> values) {
         String uid = normalizeUser(userId);
         String json = toJson(values);
-        String sql = "INSERT INTO jagent_state (user_id, session_id, state_key, state_value, state_type, updated_at) "
-                + "VALUES (?, ?, ?, ?, 'LIST', NOW()) "
-                + "ON DUPLICATE KEY UPDATE state_value = VALUES(state_value), state_type = 'LIST', updated_at = NOW()";
+        // List 类型复用同一 upsert SQL，仅 state_type 标记不同；
+        // 此处使用专用 list upsert 以区分 state_type
+        String sql = dialect.stateListUpsert();
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, uid);

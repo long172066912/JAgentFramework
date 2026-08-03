@@ -7,7 +7,7 @@
  *
  *      http://www.apache.org/licenses/LICENSE-2.0
  */
-package com.jrl.ai.agent.agentscope.storage.mysql;
+package com.jrl.ai.agent.agentscope.storage.jdbc;
 
 import com.jrl.ai.agent.core.storage.KVStore;
 import org.slf4j.Logger;
@@ -18,24 +18,25 @@ import java.sql.*;
 import java.util.Optional;
 
 /**
- * 基于 MySQL 的 KV 存储实现。
+ * 基于 JDBC 的 KV 存储实现，通过 {@link SqlDialect} 适配不同数据库。
  *
  * <p>表：{@code jagent_kv}（kv_key VARCHAR PRIMARY KEY, kv_value TEXT）
  */
-public class MysqlKVStore implements KVStore {
+public class JdbcKVStore implements KVStore {
 
-    private static final Logger log = LoggerFactory.getLogger(MysqlKVStore.class);
+    private static final Logger log = LoggerFactory.getLogger(JdbcKVStore.class);
 
     private final DataSource dataSource;
+    private final SqlDialect dialect;
 
-    public MysqlKVStore(DataSource dataSource) {
+    public JdbcKVStore(DataSource dataSource, SqlDialect dialect) {
         this.dataSource = dataSource;
+        this.dialect = dialect;
     }
 
     @Override
     public void put(String key, String value) {
-        String sql = "INSERT INTO jagent_kv (kv_key, kv_value, updated_at) VALUES (?, ?, NOW()) "
-                + "ON DUPLICATE KEY UPDATE kv_value = VALUES(kv_value), updated_at = NOW()";
+        String sql = dialect.kvUpsert();
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, key);

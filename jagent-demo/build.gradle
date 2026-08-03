@@ -16,7 +16,7 @@ jar {
 dependencies {
     implementation project(':jagent-core')
     implementation project(':jagent-agentscope')
-    implementation project(':jagent-store-redis')  // 或 ':jagent-store-mysql'
+    implementation project(':jagent-store-redis')  // 或 ':jagent-store-jdbc'
 
     // Spring Boot WebFlux（响应式 + SSE 流式输出）
     implementation 'org.springframework.boot:spring-boot-starter-webflux'

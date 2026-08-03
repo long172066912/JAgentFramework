@@ -7,7 +7,7 @@
  *
  *      http://www.apache.org/licenses/LICENSE-2.0
  */
-package com.jrl.ai.agent.agentscope.storage.mysql;
+package com.jrl.ai.agent.agentscope.storage.jdbc;
 
 import com.jrl.ai.agent.core.memory.MemoryStore;
 import org.slf4j.Logger;
@@ -20,24 +20,25 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * 基于 MySQL 的记忆存储实现。
+ * 基于 JDBC 的记忆存储实现，通过 {@link SqlDialect} 适配不同数据库。
  *
  * <p>表：{@code jagent_memory}（namespace + mem_key 联合主键）
  */
-public class MysqlMemoryStore implements MemoryStore {
+public class JdbcMemoryStore implements MemoryStore {
 
-    private static final Logger log = LoggerFactory.getLogger(MysqlMemoryStore.class);
+    private static final Logger log = LoggerFactory.getLogger(JdbcMemoryStore.class);
 
     private final DataSource dataSource;
+    private final SqlDialect dialect;
 
-    public MysqlMemoryStore(DataSource dataSource) {
+    public JdbcMemoryStore(DataSource dataSource, SqlDialect dialect) {
         this.dataSource = dataSource;
+        this.dialect = dialect;
     }
 
     @Override
     public void put(String namespace, String key, String value) {
-        String sql = "INSERT INTO jagent_memory (namespace, mem_key, mem_value, updated_at) VALUES (?, ?, ?, NOW()) "
-                + "ON DUPLICATE KEY UPDATE mem_value = VALUES(mem_value), updated_at = NOW()";
+        String sql = dialect.memoryUpsert();
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, namespace);

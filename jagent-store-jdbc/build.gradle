@@ -1,4 +1,4 @@
-description = 'JAgent MySQL 分布式存储 - 基于 HikariCP 的 KVStore/MemoryStore/AgentStateStore 实现'
+description = 'JAgent JDBC 分布式存储 - 基于 HikariCP 的多数据库 KVStore/MemoryStore/AgentStateStore 实现'
 
 dependencies {
     api project(':jagent-core')
