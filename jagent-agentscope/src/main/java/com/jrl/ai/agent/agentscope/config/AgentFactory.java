@@ -17,6 +17,8 @@ import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.tracing.OtelTracingMiddleware;
 import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
 import io.agentscope.harness.agent.HarnessAgent;
+import io.agentscope.harness.agent.memory.compaction.CompactionConfig;
+import io.agentscope.harness.agent.memory.compaction.ToolResultEvictionConfig;
 import io.agentscope.harness.agent.subagent.SubagentDeclaration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,6 +77,8 @@ public class AgentFactory implements AgentRegistry {
         this.properties = properties;
         this.interceptors = interceptors != null ? List.copyOf(interceptors) : List.of();
         this.skillRegistry = skillRegistry;
+        // 启动阶段：将父 Agent 的 maxContextTokens 传播到未配置的子 Agent
+        propagateMaxContextTokens();
     }
 
     /**
@@ -165,6 +169,15 @@ public class AgentFactory implements AgentRegistry {
             if (config.isTracingEnabled()) {
                 builder.middleware(new OtelTracingMiddleware());
                 log.info("Agent [{}] 已启用 OpenTelemetry 链路追踪", key);
+            }
+
+            // 配置上下文压缩与工具结果驱逐（长对话防溢出）
+            int maxTokens = config.getMaxContextTokens();
+            if (maxTokens > 0) {
+                builder.maxContextTokens(maxTokens);
+                builder.compaction(CompactionConfig.builder().build());
+                builder.toolResultEviction(ToolResultEvictionConfig.defaults());
+                log.info("Agent [{}] 已启用上下文压缩，maxContextTokens={}", key, maxTokens);
             }
 
             // 如果 YAML 中配置了 API Key，直接构建 Model 对象（避免依赖环境变量）
@@ -438,5 +451,30 @@ public class AgentFactory implements AgentRegistry {
 
         log.debug("自动注入子 Agent 调度规则: agents={}", subagentRefs.size());
         return baseSysPrompt + rules;
+    }
+
+    /**
+     * 启动阶段传播 maxContextTokens 配置：父 Agent 配置了该值，子 Agent 未配置则自动继承。
+     */
+    private void propagateMaxContextTokens() {
+        for (var entry : properties.getAgents().entrySet()) {
+            String parentKey = entry.getKey();
+            JAgentProperties.AgentConfig parentConfig = entry.getValue();
+            int parentMaxTokens = parentConfig.getMaxContextTokens();
+
+            if (parentMaxTokens <= 0) continue;
+
+            List<JAgentProperties.SubagentRef> subagents = parentConfig.getSubagents();
+            if (subagents == null || subagents.isEmpty()) continue;
+
+            for (JAgentProperties.SubagentRef subRef : subagents) {
+                String subKey = subRef.getId();
+                JAgentProperties.AgentConfig subConfig = properties.getAgents().get(subKey);
+                if (subConfig != null && subConfig.getMaxContextTokens() <= 0) {
+                    subConfig.setMaxContextTokens(parentMaxTokens);
+                    log.info("子 Agent [{}] 继承父 Agent [{}] 的 maxContextTokens={}", subKey, parentKey, parentMaxTokens);
+                }
+            }
+        }
     }
 }

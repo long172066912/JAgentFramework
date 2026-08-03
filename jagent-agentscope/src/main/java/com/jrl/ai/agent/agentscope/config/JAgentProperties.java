@@ -156,6 +156,8 @@ public class JAgentProperties {
         private boolean planModeEnabled = false;
         /** 是否启用 OpenTelemetry 链路追踪（默认 true，开启后可视化执行链路；未配置 OTel SDK 时零开销） */
         private boolean tracingEnabled = true;
+        /** 最大上下文 Token 数（超过后自动压缩历史，0 表示不限制） */
+        private int maxContextTokens = 0;
         /** 共享会话组标识，同组 Agent 共享对话历史（可选） */
         private String sessionGroup;
         /** Markdown Skill 目录（相对于 workspace，可选，启用后自动热加载 SKILL.md） */
@@ -204,6 +206,9 @@ public class JAgentProperties {
 
         public boolean isTracingEnabled() { return tracingEnabled; }
         public void setTracingEnabled(boolean tracingEnabled) { this.tracingEnabled = tracingEnabled; }
+
+        public int getMaxContextTokens() { return maxContextTokens; }
+        public void setMaxContextTokens(int maxContextTokens) { this.maxContextTokens = maxContextTokens; }
 
         public String getSessionGroup() { return sessionGroup; }
         public void setSessionGroup(String sessionGroup) { this.sessionGroup = sessionGroup; }
