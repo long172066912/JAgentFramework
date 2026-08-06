@@ -13,11 +13,8 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Expiry;
 import com.jrl.ai.agent.agentscope.adapter.AgentScopeAgentAdapter;
-import com.jrl.ai.agent.agentscope.adapter.ContextConverter;
-import com.jrl.ai.agent.agentscope.adapter.MessageConverter;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.io.ChatMessage;
-import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.ConfirmResult;
 import io.agentscope.core.event.RequireUserConfirmEvent;
@@ -25,7 +22,6 @@ import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.core.message.UserMessage;
-import io.agentscope.harness.agent.HarnessAgent;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,7 +41,8 @@ import java.util.function.BiConsumer;
  *   <li>Stream 化：内部通过 Sinks.Many 桥接事件流，支持多订阅者</li>
  *   <li>短连接友好：execute() 立即返回 taskId，客户端可断开</li>
  *   <li>事件驱动状态机：每个 AgentEvent 触发状态迁移</li>
- *   <li>确认恢复：confirmAndResume() 带 ConfirmResult 重新调用 streamEvents</li>
+ *   <li>确认恢复：confirmAndResume() 带 ConfirmResult 重新调用 adapter 的 streamAgentEvents</li>
+ *   <li>执行监听：由 adapter 内部封装，本类不感知监听器</li>
  * </ul>
  *
  * <p>短连接流程：
@@ -150,12 +147,8 @@ public class AsyncTaskManager {
         TaskContext ctx = new TaskContext(taskId, agent, context);
         tasks.put(taskId, ctx);
 
-        // 纯异步订阅事件流，无阻塞
-        HarnessAgent delegate = agent.getDelegate();
-        Msg asMsg = MessageConverter.toAgentScope(input);
-        RuntimeContext asCtx = ContextConverter.toAgentScope(context);
-
-        delegate.streamEvents(asMsg, asCtx)
+        // 纯异步订阅事件流，无阻塞（执行监听器通知由 adapter 内部封装）
+        agent.streamAgentEvents(input, context)
                 .subscribe(
                         event -> onAgentEvent(ctx, event),
                         error -> onAgentError(ctx, error),
@@ -204,11 +197,9 @@ public class AsyncTaskManager {
                 .build();
 
         AgentScopeAgentAdapter agent = ctx.agent;
-        HarnessAgent delegate = agent.getDelegate();
-        RuntimeContext asCtx = ContextConverter.toAgentScope(ctx.context);
 
-        // 纯异步恢复执行
-        delegate.streamEvents(confirmMsg, asCtx)
+        // 纯异步恢复执行（执行监听器通知由 adapter 内部封装）
+        agent.streamAgentEvents(ChatMessage.user(confirmMsg.getTextContent()), confirmMsg, ctx.context)
                 .subscribe(
                         event -> onAgentEvent(ctx, event),
                         error -> onAgentError(ctx, error),
@@ -449,6 +440,5 @@ public class AsyncTaskManager {
         void release() {
             this.agent = null;
             this.context = null;
-        }
-    }
+        }    }
 }

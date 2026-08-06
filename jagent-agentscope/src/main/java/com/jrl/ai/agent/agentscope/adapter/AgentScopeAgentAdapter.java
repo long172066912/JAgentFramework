@@ -1,6 +1,10 @@
 package com.jrl.ai.agent.agentscope.adapter;
 
 import com.jrl.ai.agent.core.agent.Agent;
+import com.jrl.ai.agent.core.agent.AgentExecutionEvent;
+import com.jrl.ai.agent.core.agent.AgentExecutionListener;
+import com.jrl.ai.agent.core.agent.AgentExecutionListenerRegistry;
+import com.jrl.ai.agent.core.agent.AgentExecutionListeners;
 import com.jrl.ai.agent.core.agent.AgentInterceptor;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.io.ChatMessage;
@@ -8,9 +12,11 @@ import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.core.task.TaskResult;
 import com.jrl.ai.agent.core.task.contract.TokenUsage;
 import io.agentscope.core.agent.RuntimeContext;
+import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.model.ChatUsage;
 import io.agentscope.harness.agent.HarnessAgent;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import org.slf4j.Logger;
@@ -25,6 +31,7 @@ import java.util.Map;
  * 包装为 jagent-core 的 {@link Agent} 接口。
  *
  * <p>同步执行经过拦截器链包装，实现 AOP 统一抽象。
+ * 同步与流式执行均会通知 {@link AgentExecutionListener}（执行开始/结束）。
  */
 public class AgentScopeAgentAdapter implements Agent {
 
@@ -32,6 +39,9 @@ public class AgentScopeAgentAdapter implements Agent {
 
     private final HarnessAgent delegate;
     private final List<AgentInterceptor> interceptors;
+    private final AgentExecutionListenerRegistry listenerRegistry;
+    /** Agent 配置键名（如 chat），用于执行事件标识来源，可为 null */
+    private String agentKey;
 
     /**
      * 创建适配器，包装 AgentScope HarnessAgent。
@@ -39,7 +49,7 @@ public class AgentScopeAgentAdapter implements Agent {
      * @param delegate AgentScope HarnessAgent 实例
      */
     public AgentScopeAgentAdapter(HarnessAgent delegate) {
-        this(delegate, List.of());
+        this(delegate, List.of(), new AgentExecutionListenerRegistry());
     }
 
     /**
@@ -50,8 +60,66 @@ public class AgentScopeAgentAdapter implements Agent {
      */
     public AgentScopeAgentAdapter(HarnessAgent delegate,
                                    List<AgentInterceptor> interceptors) {
+        this(delegate, interceptors, new AgentExecutionListenerRegistry());
+    }
+
+    /**
+     * 创建适配器，包装 AgentScope HarnessAgent，并指定拦截器链与执行监听器（兼容入口）。
+     *
+     * <p>监听器会被自动注册到内部注册表（作用域监听器按 key 入桶，其余为全局）。
+     *
+     * @param delegate          AgentScope HarnessAgent 实例
+     * @param interceptors      同步拦截器列表
+     * @param listeners         执行监听器列表（感知执行开始/结束）
+     */
+    public AgentScopeAgentAdapter(HarnessAgent delegate,
+                                   List<AgentInterceptor> interceptors,
+                                   List<AgentExecutionListener> listeners) {
+        this(delegate, interceptors, toRegistry(listeners));
+    }
+
+    /**
+     * 创建适配器，包装 AgentScope HarnessAgent，并指定拦截器链与执行监听器注册表。
+     *
+     * @param delegate          AgentScope HarnessAgent 实例
+     * @param interceptors      同步拦截器列表
+     * @param listenerRegistry  执行监听器注册表（按 agentKey 分发执行开始/结束事件）
+     */
+    public AgentScopeAgentAdapter(HarnessAgent delegate,
+                                   List<AgentInterceptor> interceptors,
+                                   AgentExecutionListenerRegistry listenerRegistry) {
         this.delegate = delegate;
         this.interceptors = interceptors != null ? new ArrayList<>(interceptors) : List.of();
+        this.listenerRegistry = listenerRegistry != null ? listenerRegistry : new AgentExecutionListenerRegistry();
+    }
+
+    /**
+     * 将监听器列表转换为注册表（作用域监听器按 key 入桶，其余为全局）。
+     */
+    private static AgentExecutionListenerRegistry toRegistry(List<AgentExecutionListener> listeners) {
+        AgentExecutionListenerRegistry registry = new AgentExecutionListenerRegistry();
+        if (listeners != null) {
+            listeners.forEach(registry::register);
+        }
+        return registry;
+    }
+
+    /**
+     * 设置 Agent 配置键名（由 AgentFactory 创建时注入，用于执行事件标识来源）。
+     *
+     * @param agentKey Agent 配置键名（如 {@code chat}）
+     */
+    public void setAgentKey(String agentKey) {
+        this.agentKey = agentKey;
+    }
+
+    /**
+     * 获取 Agent 配置键名（可能为 null）。
+     *
+     * @return Agent 配置键名
+     */
+    public String getAgentKey() {
+        return agentKey;
     }
 
     @Override
@@ -67,10 +135,14 @@ public class AgentScopeAgentAdapter implements Agent {
     // ==================== 同步执行 ====================
 
     /**
-     * 同步执行 Agent — 经过拦截器链包装。
+     * 同步执行 Agent — 经过拦截器链包装，并通知执行监听器。
      */
     @Override
     public TaskResult execute(ChatMessage input, AgentContext context) {
+        long startTime = System.currentTimeMillis();
+        AgentExecutionListeners.notifyStart(listenerRegistry,
+                AgentExecutionEvent.start(this, agentKey, input, context, AgentExecutionEvent.ExecutionMode.SYNC));
+
         AgentInterceptor.ExecutionChain chain = buildSyncChain();
 
         // 前置通知
@@ -90,11 +162,18 @@ public class AgentScopeAgentAdapter implements Agent {
             // 自动合并拦截器产生的额外步骤
             result = enrichTraceWithInterceptorSteps(result, context);
 
+            AgentExecutionListeners.notifyEnd(listenerRegistry,
+                    AgentExecutionEvent.end(this, agentKey, input, context,
+                            AgentExecutionEvent.ExecutionMode.SYNC, startTime, result, null));
+
             return result;
         } catch (Exception e) {
             for (AgentInterceptor interceptor : interceptors) {
                 interceptor.onError(this, input, context, e);
             }
+            AgentExecutionListeners.notifyEnd(listenerRegistry,
+                    AgentExecutionEvent.end(this, agentKey, input, context,
+                            AgentExecutionEvent.ExecutionMode.SYNC, startTime, null, e));
             throw e;
         }
     }
@@ -170,6 +249,10 @@ public class AgentScopeAgentAdapter implements Agent {
         Msg asMsg = MessageConverter.toAgentScope(input);
         RuntimeContext asCtx = ContextConverter.toAgentScope(context);
 
+        long startTime = System.currentTimeMillis();
+        AgentExecutionListeners.notifyStart(listenerRegistry,
+                AgentExecutionEvent.start(this, agentKey, input, context, AgentExecutionEvent.ExecutionMode.STREAM));
+
         Thread.startVirtualThread(() -> {
             final int[] prevLen = {0};
             delegate.stream(asMsg, asCtx)
@@ -191,9 +274,15 @@ public class AgentScopeAgentAdapter implements Agent {
                             error -> {
                                 log.error("[Stream] Error", error);
                                 onError.accept(error);
+                                AgentExecutionListeners.notifyEnd(listenerRegistry,
+                                        AgentExecutionEvent.end(this, agentKey, input, context,
+                                                AgentExecutionEvent.ExecutionMode.STREAM, startTime, null, error));
                             },
                             () -> {
                                 onComplete.run();
+                                AgentExecutionListeners.notifyEnd(listenerRegistry,
+                                        AgentExecutionEvent.end(this, agentKey, input, context,
+                                                AgentExecutionEvent.ExecutionMode.STREAM, startTime, null, null));
                             }
                     );
         });
@@ -204,6 +293,48 @@ public class AgentScopeAgentAdapter implements Agent {
      */
     public HarnessAgent getDelegate() {
         return delegate;
+    }
+
+    // ==================== 原始事件流执行 ====================
+
+    /**
+     * 流式执行 Agent 并发射原始事件 — 执行监听器通知在内部封装（供异步任务等场景使用）。
+     *
+     * <p>与 {@link #streamEvents} 不同，本方法发射原始 {@link AgentEvent}
+     * （含工具调用确认事件），由调用方自行消费事件流；
+     * 每次调用对应一次执行开始/结束通知。
+     *
+     * @param input   用户输入消息
+     * @param context 运行时上下文
+     * @return 原始事件流
+     */
+    public Flux<AgentEvent> streamAgentEvents(ChatMessage input, AgentContext context) {
+        return streamAgentEvents(input, MessageConverter.toAgentScope(input), context);
+    }
+
+    /**
+     * 使用预构建的 AgentScope 消息流式执行（如携带 ConfirmResult 的确认恢复消息），发射原始事件。
+     *
+     * <p>执行监听器通知在内部封装，调用方无需感知。
+     *
+     * @param input   逻辑输入消息（用于执行事件描述）
+     * @param asMsg   预构建的 AgentScope 消息
+     * @param context 运行时上下文
+     * @return 原始事件流
+     */
+    public Flux<AgentEvent> streamAgentEvents(ChatMessage input, Msg asMsg, AgentContext context) {
+        long startTime = System.currentTimeMillis();
+        AgentExecutionListeners.notifyStart(listenerRegistry,
+                AgentExecutionEvent.start(this, agentKey, input, context, AgentExecutionEvent.ExecutionMode.ASYNC));
+
+        RuntimeContext asCtx = ContextConverter.toAgentScope(context);
+        return delegate.streamEvents(asMsg, asCtx)
+                .doOnError(error -> AgentExecutionListeners.notifyEnd(listenerRegistry,
+                        AgentExecutionEvent.end(this, agentKey, input, context,
+                                AgentExecutionEvent.ExecutionMode.ASYNC, startTime, null, error)))
+                .doOnComplete(() -> AgentExecutionListeners.notifyEnd(listenerRegistry,
+                        AgentExecutionEvent.end(this, agentKey, input, context,
+                                AgentExecutionEvent.ExecutionMode.ASYNC, startTime, null, null)));
     }
 
     // ==================== 辅助方法 ====================

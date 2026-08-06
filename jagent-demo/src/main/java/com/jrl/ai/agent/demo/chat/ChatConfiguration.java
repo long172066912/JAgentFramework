@@ -1,5 +1,6 @@
 package com.jrl.ai.agent.demo.chat;
 
+import com.jrl.ai.agent.core.agent.AgentExecutionListener;
 import com.jrl.ai.agent.core.skill.Skill;
 import com.jrl.ai.agent.demo.chat.skill.WebSearchSkill;
 import com.jrl.ai.agent.demo.chat.skill.KnowledgeSearchSkill;
@@ -26,5 +27,13 @@ public class ChatConfiguration {
     @Bean
     public Skill webSearchSkill() {
         return new WebSearchSkill();
+    }
+
+    /**
+     * 智能助手执行日志监听器 — 记录智能助手（chat）执行的开始与结束。
+     */
+    @Bean
+    public AgentExecutionListener chatExecutionLogListener() {
+        return new ChatExecutionLogListener();
     }
 }

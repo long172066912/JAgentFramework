@@ -12,6 +12,8 @@ import com.jrl.ai.agent.agentscope.adapter.AgentScopeModelAdapter;
 import com.jrl.ai.agent.agentscope.model.OpenAICompatibleModel;
 import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
 import com.jrl.ai.agent.agentscope.evaluation.*;
+import com.jrl.ai.agent.core.agent.AgentExecutionListener;
+import com.jrl.ai.agent.core.agent.AgentExecutionListenerRegistry;
 import com.jrl.ai.agent.core.agent.AgentInterceptor;
 import com.jrl.ai.agent.core.agent.AgentLifecycle;
 import com.jrl.ai.agent.core.agent.AgentRegistry;
@@ -73,20 +75,41 @@ public class JAgentAutoConfiguration {
     private static final Logger log = LoggerFactory.getLogger(JAgentAutoConfiguration.class);
 
     /**
+     * 注册 Agent 执行监听器注册表 — 收集所有监听器 Bean 并按 agentKey 分桶。
+     *
+     * <p>作用域监听器（{@link com.jrl.ai.agent.core.agent.ScopedAgentExecutionListener}）
+     * 按绑定 key 入桶，其余注册为全局监听器；分发时按 key 查表，无需全量扫描。
+     *
+     * @param listeners 所有 Agent 执行监听器 Bean
+     * @return AgentExecutionListenerRegistry 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public AgentExecutionListenerRegistry agentExecutionListenerRegistry(
+            List<AgentExecutionListener> listeners) {
+        AgentExecutionListenerRegistry registry = new AgentExecutionListenerRegistry();
+        listeners.forEach(registry::register);
+        log.info("[AgentExecutionListenerRegistry] Registered {} execution listeners", listeners.size());
+        return registry;
+    }
+
+    /**
      * 注册 Agent 工厂 Bean，同时作为 {@link AgentRegistry}。
      *
      * <p>自动收集所有 Skill Bean 和 SkillRegistry Bean，合并为统一注册表。
      *
-     * @param properties     JAgent 配置属性
-     * @param interceptors   同步拦截器列表
-     * @param skillRegistries 所有 SkillRegistry Bean（可选）
-     * @param skills         所有独立 Skill Bean（可选）
-     * @param stateStore     Agent 状态存储（可选，分布式模式下注入 Redis/MySQL 实现）
+     * @param properties       JAgent 配置属性
+     * @param interceptors     同步拦截器列表
+     * @param listenerRegistry Agent 执行监听器注册表（按 agentKey 分发执行开始/结束事件）
+     * @param skillRegistries  所有 SkillRegistry Bean（可选）
+     * @param skills           所有独立 Skill Bean（可选）
+     * @param stateStore       Agent 状态存储（可选，分布式模式下注入 Redis/MySQL 实现）
      * @return AgentFactory 实例
      */
     @Bean
     public AgentFactory agentFactory(JAgentProperties properties,
                                      List<AgentInterceptor> interceptors,
+                                     AgentExecutionListenerRegistry listenerRegistry,
                                      ObjectProvider<List<SkillRegistry>> skillRegistries,
                                      ObjectProvider<List<Skill>> skills,
                                      ObjectProvider<AgentStateStore> stateStore) {
@@ -104,7 +127,8 @@ public class JAgentAutoConfiguration {
                     unifiedRegistry.all().stream().map(Skill::name).toList());
         }
 
-        return new AgentFactory(properties, interceptors, unifiedRegistry, stateStore.getIfAvailable());
+        return new AgentFactory(properties, interceptors, unifiedRegistry,
+                stateStore.getIfAvailable(), listenerRegistry);
     }
 
     /**
@@ -531,6 +555,8 @@ public class JAgentAutoConfiguration {
 
     /**
      * 注册异步任务管理器 — 支持短连接模式下的用户确认机制。
+     *
+     * <p>执行监听器通知由 Agent 适配器内部封装，本类无需感知。
      *
      * @return AsyncTaskManager 实例
      */

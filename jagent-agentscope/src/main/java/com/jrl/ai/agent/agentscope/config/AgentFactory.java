@@ -5,6 +5,8 @@ import com.jrl.ai.agent.agentscope.middleware.SubagentTraceMiddleware;
 import com.jrl.ai.agent.agentscope.model.OpenAICompatibleModel;
 import com.jrl.ai.agent.agentscope.skill.SkillToolAdapter;
 import com.jrl.ai.agent.core.agent.Agent;
+import com.jrl.ai.agent.core.agent.AgentExecutionListener;
+import com.jrl.ai.agent.core.agent.AgentExecutionListenerRegistry;
 import com.jrl.ai.agent.core.agent.AgentInterceptor;
 import com.jrl.ai.agent.core.agent.AgentRegistry;
 import com.jrl.ai.agent.core.skill.Skill;
@@ -46,6 +48,7 @@ public class AgentFactory implements AgentRegistry {
 
     private final JAgentProperties properties;
     private final List<AgentInterceptor> interceptors;
+    private final AgentExecutionListenerRegistry listenerRegistry;
     private final SkillRegistry skillRegistry;
     private final AgentStateStore defaultStateStore;
     private final ConcurrentHashMap<String, Agent> agentCache = new ConcurrentHashMap<>();
@@ -58,7 +61,7 @@ public class AgentFactory implements AgentRegistry {
      * @param properties JAgent 配置属性
      */
     public AgentFactory(JAgentProperties properties) {
-        this(properties, List.of(), null, null);
+        this(properties, List.of(), null, null, List.of());
     }
 
     /**
@@ -68,7 +71,7 @@ public class AgentFactory implements AgentRegistry {
      * @param interceptors Agent 拦截器列表（会被复制为不可变副本）
      */
     public AgentFactory(JAgentProperties properties, List<AgentInterceptor> interceptors) {
-        this(properties, interceptors, null, null);
+        this(properties, interceptors, null, null, List.of());
     }
 
     /**
@@ -79,7 +82,7 @@ public class AgentFactory implements AgentRegistry {
      * @param skillRegistry Skill 注册表（可选，为 null 时不挂载工具）
      */
     public AgentFactory(JAgentProperties properties, List<AgentInterceptor> interceptors, SkillRegistry skillRegistry) {
-        this(properties, interceptors, skillRegistry, null);
+        this(properties, interceptors, skillRegistry, null, List.of());
     }
 
     /**
@@ -92,12 +95,56 @@ public class AgentFactory implements AgentRegistry {
      */
     public AgentFactory(JAgentProperties properties, List<AgentInterceptor> interceptors,
                         SkillRegistry skillRegistry, AgentStateStore defaultStateStore) {
+        this(properties, interceptors, skillRegistry, defaultStateStore, List.of());
+    }
+
+    /**
+     * 创建带拦截器、Skill 注册表、状态存储和执行监听器的 Agent 工厂（兼容入口）。
+     *
+     * <p>监听器会被自动注册到内部注册表（作用域监听器按 key 入桶，其余为全局）。
+     *
+     * @param properties        JAgent 配置属性
+     * @param interceptors      Agent 拦截器列表
+     * @param skillRegistry     Skill 注册表（可选，为 null 时不挂载工具）
+     * @param defaultStateStore 默认 AgentStateStore（可选，为 null 时使用 JsonFileAgentStateStore）
+     * @param listeners         Agent 执行监听器列表（感知所有执行的开始/结束）
+     */
+    public AgentFactory(JAgentProperties properties, List<AgentInterceptor> interceptors,
+                        SkillRegistry skillRegistry, AgentStateStore defaultStateStore,
+                        List<AgentExecutionListener> listeners) {
+        this(properties, interceptors, skillRegistry, defaultStateStore, toRegistry(listeners));
+    }
+
+    /**
+     * 创建带拦截器、Skill 注册表、状态存储和执行监听器注册表的 Agent 工厂。
+     *
+     * @param properties        JAgent 配置属性
+     * @param interceptors      Agent 拦截器列表
+     * @param skillRegistry     Skill 注册表（可选，为 null 时不挂载工具）
+     * @param defaultStateStore 默认 AgentStateStore（可选，为 null 时使用 JsonFileAgentStateStore）
+     * @param listenerRegistry  Agent 执行监听器注册表（按 agentKey 分发执行开始/结束事件）
+     */
+    public AgentFactory(JAgentProperties properties, List<AgentInterceptor> interceptors,
+                        SkillRegistry skillRegistry, AgentStateStore defaultStateStore,
+                        AgentExecutionListenerRegistry listenerRegistry) {
         this.properties = properties;
         this.interceptors = interceptors != null ? List.copyOf(interceptors) : List.of();
+        this.listenerRegistry = listenerRegistry != null ? listenerRegistry : new AgentExecutionListenerRegistry();
         this.skillRegistry = skillRegistry;
         this.defaultStateStore = defaultStateStore;
         // 启动阶段：将父 Agent 的 maxContextTokens 传播到未配置的子 Agent
         propagateMaxContextTokens();
+    }
+
+    /**
+     * 将监听器列表转换为注册表（作用域监听器按 key 入桶，其余为全局）。
+     */
+    private static AgentExecutionListenerRegistry toRegistry(List<AgentExecutionListener> listeners) {
+        AgentExecutionListenerRegistry registry = new AgentExecutionListenerRegistry();
+        if (listeners != null) {
+            listeners.forEach(registry::register);
+        }
+        return registry;
     }
 
     /**
@@ -109,7 +156,9 @@ public class AgentFactory implements AgentRegistry {
     public Agent getAgent(String agentKey) {
         return agentCache.computeIfAbsent(agentKey, key -> {
             HarnessAgent harness = getHarnessAgent(key);
-            return new AgentScopeAgentAdapter(harness, interceptors);
+            AgentScopeAgentAdapter adapter = new AgentScopeAgentAdapter(harness, interceptors, listenerRegistry);
+            adapter.setAgentKey(key); // 注入配置键名，供执行监听器按 key 精确分发
+            return adapter;
         });
     }
 
