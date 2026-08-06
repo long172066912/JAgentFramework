@@ -5,6 +5,10 @@ plugins {
 
 description = 'JAgent Demo - Spring Boot + AgentScope 2.0 演示应用'
 
+// 覆盖 Spring Boot 依赖管理的 OTel 低版本（AgentScope 2.0 需要 1.61+，
+// 低版本缺少 opentelemetry-common 构件会报 ClassNotFoundException: io.opentelemetry.common.ComponentLoader）
+ext['opentelemetry.version'] = '1.61.0'
+
 // Spring Boot 不需要发布 jar
 bootJar {
     enabled = true
@@ -14,6 +18,10 @@ jar {
 }
 
 dependencies {
+    // OpenTelemetry BOM：统一 OTel 全家桶版本，覆盖 Spring Boot 依赖管理的低版本
+    //（AgentScope 2.0 需要 1.61+，低版本缺少 opentelemetry-common 构件会导致 ClassNotFoundException）
+    implementation platform('io.opentelemetry:opentelemetry-bom:1.61.0')
+
     implementation project(':jagent-core')
     implementation project(':jagent-agentscope')
     implementation project(':jagent-store-redis')  // 或 ':jagent-store-jdbc'
@@ -28,6 +36,10 @@ dependencies {
     // AgentScope 模型提供商
     implementation 'io.agentscope:agentscope-extensions-model-dashscope:2.0.0'
     implementation 'io.agentscope:agentscope-extensions-model-openai:2.0.0'
+
+    // OpenTelemetry SDK + 日志导出器（执行链路追踪，评测体系基于 trace 多维分析）
+    implementation 'io.opentelemetry:opentelemetry-sdk:1.61.0'
+    implementation 'io.opentelemetry:opentelemetry-exporter-logging:1.61.0'
 
 
     // 测试

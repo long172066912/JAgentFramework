@@ -47,6 +47,8 @@
         .message.assistant .content strong { font-weight: 600; }
         
         .score-badge { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 4px 10px; border-radius: 12px; font-size: 12px; background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+        .score-badge.clickable { cursor: pointer; }
+        .score-badge.clickable:hover { filter: brightness(0.96); }
         .score-badge.medium { background: #fffbeb; border-color: #fde68a; color: #92400e; }
         .score-badge.low { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
         .score-badge .score-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; }
@@ -77,6 +79,48 @@
         .suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 20px; }
         .suggestion-chip { background: #fff; border: 1px solid #e5e5e5; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-size: 13px; color: #555; }
         .suggestion-chip:hover { background: #f0f0ff; border-color: #4f46e5; color: #4f46e5; }
+
+        /* 链路详情弹窗 */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; z-index: 100; }
+        .modal-overlay.show { display: flex; }
+        .trace-modal { background: #fff; width: 780px; max-width: 92vw; max-height: 85vh; border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        .trace-modal-header { padding: 16px 20px; border-bottom: 1px solid #e5e5e5; display: flex; align-items: center; justify-content: space-between; }
+        .trace-modal-header h3 { font-size: 16px; color: #333; }
+        .trace-modal-header .trace-id { font-size: 11px; color: #999; font-family: Menlo, Monaco, monospace; margin-top: 2px; }
+        .modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #999; padding: 4px 8px; }
+        .modal-close:hover { color: #333; }
+        .trace-modal-body { overflow-y: auto; padding: 16px 20px; }
+
+        .trace-section { margin-bottom: 20px; }
+        .trace-section h4 { font-size: 13px; color: #666; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+        .stat-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; }
+        .stat-card .stat-label { font-size: 11px; color: #888; }
+        .stat-card .stat-value { font-size: 16px; font-weight: 600; color: #333; margin-top: 2px; }
+
+        .span-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; }
+        .span-name { min-width: 240px; max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #333; }
+        .span-bar-wrap { flex: 1; height: 14px; background: #f1f5f9; border-radius: 4px; position: relative; overflow: hidden; }
+        .span-bar { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; min-width: 2px; }
+        .span-bar.INVOKE_AGENT { background: #4f46e5; }
+        .span-bar.CHAT { background: #0ea5e9; }
+        .span-bar.EXECUTE_TOOL { background: #f59e0b; }
+        .span-bar.OTHER { background: #94a3b8; }
+        .span-bar.error { background: #ef4444; }
+        .span-dur { min-width: 64px; text-align: right; font-size: 12px; color: #666; font-family: Menlo, Monaco, monospace; }
+        .span-extra { font-size: 11px; color: #999; min-width: 90px; }
+
+        .dim-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13px; }
+        .dim-name { min-width: 64px; color: #555; }
+        .dim-bar-wrap { flex: 1; height: 8px; background: #f1f5f9; border-radius: 4px; overflow: hidden; }
+        .dim-bar { height: 100%; border-radius: 4px; background: #22c55e; }
+        .dim-bar.medium { background: #f59e0b; }
+        .dim-bar.low { background: #ef4444; }
+        .dim-score { min-width: 44px; text-align: right; font-weight: 600; color: #333; }
+        .dim-metrics { font-size: 11px; color: #999; padding-left: 74px; margin-top: -4px; margin-bottom: 4px; }
+
+        .trace-empty { text-align: center; color: #999; padding: 30px; font-size: 13px; }
     </style>
 </head>
 <body>
@@ -105,6 +149,20 @@
         <div class="input-wrapper">
             <textarea id="userInput" placeholder="输入消息..." onkeydown="handleKey(event)"></textarea>
             <button class="send-btn" id="sendBtn" onclick="sendMessage()">发送</button>
+        </div>
+    </div>
+
+    <!-- 链路详情弹窗 -->
+    <div class="modal-overlay" id="traceModal" onclick="if (event.target === this) closeTraceModal()">
+        <div class="trace-modal">
+            <div class="trace-modal-header">
+                <div>
+                    <h3>🔍 执行链路与评测详情</h3>
+                    <div class="trace-id" id="traceModalId"></div>
+                </div>
+                <button class="modal-close" onclick="closeTraceModal()">✕</button>
+            </div>
+            <div class="trace-modal-body" id="traceModalBody"></div>
         </div>
     </div>
 
@@ -315,7 +373,23 @@
                 badge.style.display = 'inline-flex';
                 badge.style.alignItems = 'center';
                 badge.className = 'score-badge ' + cls;
-                badge.innerHTML = `<span class="score-dot"></span>置信度 ${scorePercent}分 · ${data.label}`;
+                if (data.trace && (data.trace.analysis || data.trace.spans || data.trace.steps)) {
+                    // 链路快照随评测数据一同返回（归属专门的 trace 字段），直接弹窗展示，无需二次请求
+                    const detail = {
+                        traceId: data.traceId,
+                        analysis: data.trace.analysis,
+                        spans: data.trace.spans || [],
+                        steps: data.trace.steps || [],
+                        totalTime: data.trace.totalTime,
+                        evaluation: { evalId: data.evalId, score: data.score, label: data.label, dimensions: data.dimensions }
+                    };
+                    badge.classList.add('clickable');
+                    badge.title = '点击查看执行链路与评测详情';
+                    badge.onclick = () => openTraceModal(detail);
+                    badge.innerHTML = `<span class="score-dot"></span>置信度 ${scorePercent}分 · ${data.label} · 🔍 查看链路`;
+                } else {
+                    badge.innerHTML = `<span class="score-dot"></span>置信度 ${scorePercent}分 · ${data.label}`;
+                }
                 contentEl.appendChild(badge);
             } catch (e) {
                 // 评测查询失败不影响主流程
@@ -325,6 +399,140 @@
         function retryWithWebSearch(originalText) {
             // 使用 chat-web agent 重新回答
             sendMessage('chat-web', originalText);
+        }
+
+        // ==================== 链路详情弹窗 ====================
+
+        const KIND_ICONS = { INVOKE_AGENT: '🤖', CHAT: '💬', EXECUTE_TOOL: '🔧', OTHER: '⚙️' };
+        const KIND_LABELS = { INVOKE_AGENT: 'Agent', CHAT: '模型', EXECUTE_TOOL: '工具', OTHER: '其他' };
+        const DIM_LABELS = { INTELLIGENCE: '智能性', PERFORMANCE: '性能', RELIABILITY: '可靠性', SAFETY: '安全性', EXPERIENCE: '体验' };
+
+        function closeTraceModal() {
+            document.getElementById('traceModal').classList.remove('show');
+        }
+
+        /**
+         * 打开链路详情弹窗 — 数据随评测响应一同返回，无需二次请求。
+         */
+        function openTraceModal(detail) {
+            document.getElementById('traceModalId').textContent = 'traceId: ' + (detail.traceId || '-');
+            document.getElementById('traceModalBody').innerHTML = renderTraceDetail(detail);
+            document.getElementById('traceModal').classList.add('show');
+        }
+
+        function renderTraceDetail(data) {
+            const spans = data.spans || [];
+            const steps = data.steps || [];
+            if (!spans.length && !steps.length) {
+                return '<div class="trace-empty">本次执行无链路数据（可能未启用 OTel 链路）</div>';
+            }
+            let html = '';
+
+            // 1. 业务执行步骤（steps）
+            if (steps.length) {
+                let stepHtml = '';
+                steps.forEach(s => {
+                    const stepBarWidth = data.totalTime > 0 ? Math.min(100, Math.max(0.5, s.duration / data.totalTime * 100)) : 0;
+                    stepHtml += `<div class="span-row">`
+                        + `<div class="span-name" title="${escapeHtml(s.detail || '')}">📍 ${escapeHtml(s.name)}</div>`
+                        + `<div class="span-bar-wrap"><div class="span-bar" style="left:0;width:${stepBarWidth}%"></div></div>`
+                        + `<div class="span-dur">${fmtMs(s.duration)}</div>`
+                        + `<div class="span-extra">${escapeHtml(s.detail || '')}</div>`
+                        + `</div>`;
+                });
+                html += `<div class="trace-section"><h4>执行步骤（${steps.length} 步）</h4>${stepHtml}</div>`;
+            }
+            if (!spans.length) {
+                return html + renderEvaluationSection(data);
+            }
+
+            // 2. 链路多维分析
+            const a = data.analysis;
+            if (a) {
+                html += `<div class="trace-section"><h4>链路分析</h4><div class="stats-grid">`
+                    + statCard('总耗时', fmtMs(a.totalDurationMs))
+                    + statCard('模型调用', a.modelCallCount + ' 次 / ' + fmtMs(a.modelTimeMs))
+                    + statCard('工具执行', a.toolCallCount + ' 次 / ' + fmtMs(a.toolTimeMs))
+                    + statCard('Token 消耗', (a.inputTokens || 0) + ' ↓ / ' + (a.outputTokens || 0) + ' ↑')
+                    + statCard('耗时占比', '模型 ' + pct(a.modelTimeRatio) + ' · 工具 ' + pct(a.toolTimeRatio))
+                    + statCard('异常', (a.errorSpanCount || 0) + ' 个 span')
+                    + `</div></div>`;
+            }
+
+            // 2. span 时间线（按层级缩进）
+            const minStart = Math.min(...spans.map(s => s.startMs));
+            const totalDur = Math.max(a ? a.totalDurationMs : 0, 1);
+            const children = {};
+            spans.forEach(s => {
+                const key = s.parentSpanId || '__root__';
+                (children[key] = children[key] || []).push(s);
+            });
+            Object.values(children).forEach(list => list.sort((x, y) => x.startMs - y.startMs));
+            const knownIds = new Set(spans.map(s => s.spanId));
+            const roots = spans.filter(s => !s.parentSpanId || !knownIds.has(s.parentSpanId));
+
+            let treeHtml = '';
+            const walk = (span, depth) => {
+                const icon = KIND_ICONS[span.kind] || '⚙️';
+                const left = Math.max(0, (span.startMs - minStart) / totalDur * 100);
+                const width = Math.min(100 - left, Math.max(0.5, span.durationMs / totalDur * 100));
+                const extra = span.kind === 'CHAT' && (span.inputTokens || span.outputTokens)
+                    ? `${span.inputTokens || 0}↓ ${span.outputTokens || 0}↑`
+                    : '';
+                treeHtml += `<div class="span-row">`
+                    + `<div class="span-name" style="padding-left:${depth * 18}px" title="${escapeHtml(span.name)}">${icon} ${escapeHtml(span.name)}${span.ok ? '' : ' <span style="color:#ef4444">✗</span>'}</div>`
+                    + `<div class="span-bar-wrap"><div class="span-bar ${span.kind}${span.ok ? '' : ' error'}" style="left:${left}%;width:${width}%"></div></div>`
+                    + `<div class="span-dur">${fmtMs(span.durationMs)}</div>`
+                    + `<div class="span-extra">${extra}</div>`
+                    + `</div>`;
+                (children[span.spanId] || []).forEach(c => walk(c, depth + 1));
+            };
+            roots.forEach(r => walk(r, 0));
+            html += `<div class="trace-section"><h4>执行链路（${spans.length} 个 span）</h4>${treeHtml}</div>`;
+
+            // 4. 评测结果
+            return html + renderEvaluationSection(data);
+        }
+
+        function renderEvaluationSection(data) {
+            let html = '';
+            const ev = data.evaluation;
+            if (ev) {
+                let dimHtml = '';
+                for (const [dim, d] of Object.entries(ev.dimensions || {})) {
+                    const scorePct = Math.round(d.score * 100);
+                    const barCls = d.score < 0.5 ? 'low' : d.score < 0.7 ? 'medium' : '';
+                    dimHtml += `<div class="dim-row">`
+                        + `<div class="dim-name">${DIM_LABELS[dim] || dim}</div>`
+                        + `<div class="dim-bar-wrap"><div class="dim-bar ${barCls}" style="width:${scorePct}%"></div></div>`
+                        + `<div class="dim-score">${scorePct}分</div>`
+                        + `</div>`;
+                    if (d.metrics && Object.keys(d.metrics).length) {
+                        const metricsText = Object.entries(d.metrics)
+                            .map(([k, v]) => k + '=' + (typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(2)) : v))
+                            .join(' · ');
+                        dimHtml += `<div class="dim-metrics">${escapeHtml(metricsText)}</div>`;
+                    }
+                }
+                const evCls = ev.score < 0.5 ? 'low' : ev.score < 0.7 ? 'medium' : '';
+                html += `<div class="trace-section"><h4>评测结果</h4>`
+                    + `<div style="margin-bottom:10px"><span class="score-badge ${evCls}" style="margin-top:0"><span class="score-dot"></span>综合 ${Math.round(ev.score * 100)}分 · ${ev.label}</span></div>`
+                    + dimHtml + `</div>`;
+            }
+            return html;
+        }
+
+        function statCard(label, value) {
+            return `<div class="stat-card"><div class="stat-label">${label}</div><div class="stat-value">${value}</div></div>`;
+        }
+
+        function fmtMs(ms) {
+            if (ms == null) return '-';
+            return ms >= 1000 ? (ms / 1000).toFixed(2) + 's' : Math.round(ms) + 'ms';
+        }
+
+        function pct(ratio) {
+            return ratio == null ? '-' : Math.round(ratio * 100) + '%';
         }
     </script>
 </body>

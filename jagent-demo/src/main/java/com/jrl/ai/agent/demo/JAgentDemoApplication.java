@@ -1,6 +1,7 @@
 package com.jrl.ai.agent.demo;
 
 import com.jrl.ai.agent.agentscope.config.JAgentAutoConfiguration;
+import com.jrl.ai.agent.agentscope.config.JAgentOtelAutoConfiguration;
 import com.jrl.ai.agent.agentscope.config.JAgentProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -12,7 +13,7 @@ import org.springframework.context.annotation.Import;
  */
 @SpringBootApplication
 @EnableConfigurationProperties(JAgentProperties.class)
-@Import(JAgentAutoConfiguration.class)
+@Import({JAgentAutoConfiguration.class, JAgentOtelAutoConfiguration.class})
 public class JAgentDemoApplication {
 
     public static void main(String[] args) {

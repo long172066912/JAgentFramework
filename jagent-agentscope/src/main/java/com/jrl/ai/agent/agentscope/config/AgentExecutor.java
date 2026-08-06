@@ -127,8 +127,10 @@ public class AgentExecutor {
 
             if (taskResult.trace() != null) {
                 for (ExecutionTrace.Step s : taskResult.trace().steps()) {
-                    traceBuilder.step(s.name(), s.duration(), s.detail());
+                    traceBuilder.step(s);
                 }
+                // OTel 链路快照跟随外层 trace 一次返回
+                traceBuilder.otel(taskResult.trace().otel());
             }
 
             T businessData = mapper.map(taskResult, traceBuilder);
@@ -242,6 +244,9 @@ public class AgentExecutor {
 
     /**
      * 自动查询评测结果和优化建议，追加到响应中。
+     *
+     * <p>响应中的评测仅包含评分数据（剥离内部 trace）——
+     * 链路信息统一由响应外层的 {@code trace} 字段承载。
      */
     private <T> AgentResponse<T> enrichWithEvaluation(AgentResponse<T> response, String agentId) {
         if (evaluationStore == null) {
@@ -253,7 +258,7 @@ public class AgentExecutor {
             return response;
         }
 
-        EvaluationResult evaluation = results.getFirst();
+        EvaluationResult evaluation = results.getFirst().withoutTrace();
         response = response.withEvaluation(evaluation);
 
         if (optimizationReportStore != null) {

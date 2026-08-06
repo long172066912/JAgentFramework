@@ -7,6 +7,7 @@ import com.jrl.ai.agent.core.agent.AgentExecutionListenerRegistry;
 import com.jrl.ai.agent.core.agent.AgentExecutionListeners;
 import com.jrl.ai.agent.core.agent.AgentInterceptor;
 import com.jrl.ai.agent.core.context.AgentContext;
+import com.jrl.ai.agent.core.evaluation.trace.TraceSnapshot;
 import com.jrl.ai.agent.core.io.ChatMessage;
 import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.core.task.TaskResult;
@@ -16,6 +17,11 @@ import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.model.ChatUsage;
 import io.agentscope.harness.agent.HarnessAgent;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Scope;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -36,6 +42,15 @@ import java.util.Map;
 public class AgentScopeAgentAdapter implements Agent {
 
     private static final Logger log = LoggerFactory.getLogger(AgentScopeAgentAdapter.class);
+
+    /** AgentContext 中存放本次执行 OTel traceId 的键名（供评测体系关联链路） */
+    public static final String CONTEXT_KEY_TRACE_ID = "jagent.otel.traceId";
+
+    /** AgentContext 中存放本次执行根 spanId 的键名（供评测 span 挂载父级） */
+    public static final String CONTEXT_KEY_SPAN_ID = "jagent.otel.spanId";
+
+    /** OTel 追踪器名称（instrumentation scope） */
+    private static final String TRACER_NAME = "com.jrl.ai.agent";
 
     private final HarnessAgent delegate;
     private final List<AgentInterceptor> interceptors;
@@ -191,39 +206,70 @@ public class AgentScopeAgentAdapter implements Agent {
         return (input, context) -> {
             Msg asMsg = MessageConverter.toAgentScope(input);
             RuntimeContext asCtx = ContextConverter.toAgentScope(context);
-            
-            ExecutionTrace.Builder traceBuilder = ExecutionTrace.builder().start();
 
-            long start = System.currentTimeMillis();
-            Mono<Msg> mono = delegate.call(asMsg, asCtx);
-            Msg response = mono.block();
-            long duration = System.currentTimeMillis() - start;
+            // 创建框架根 span：AgentScope 的 invoke_agent/chat/execute_tool span 均挂载其下，
+            // 评测体系据此捕获完整链路做多维分析（未配置 OTel SDK 时为 noop，零开销）
+            Span executionSpan = beginExecutionSpan();
+            try (Scope ignored = executionSpan.makeCurrent()) {
+                if (executionSpan.getSpanContext().isValid()) {
+                    context.put(CONTEXT_KEY_TRACE_ID, executionSpan.getSpanContext().getTraceId());
+                    context.put(CONTEXT_KEY_SPAN_ID, executionSpan.getSpanContext().getSpanId());
+                }
 
-            if (response == null) {
-                traceBuilder.step("AGENT_CALL", duration, "agent=%s, status=NO_RESPONSE".formatted(id()));
-                return TaskResult.failure(id(), context.sessionId(),
-                        "NO_RESPONSE", "Agent 未返回响应", duration)
-                        .withTrace(traceBuilder.build());
+                ExecutionTrace.Builder traceBuilder = ExecutionTrace.builder().start();
+
+                long start = System.currentTimeMillis();
+                Mono<Msg> mono = delegate.call(asMsg, asCtx);
+                Msg response = mono.block();
+                long duration = System.currentTimeMillis() - start;
+
+                if (response == null) {
+                    traceBuilder.step("AGENT_CALL", duration, "agent=%s, status=NO_RESPONSE".formatted(id()));
+                    executionSpan.setStatus(StatusCode.ERROR, "NO_RESPONSE");
+                    return TaskResult.failure(id(), context.sessionId(),
+                            "NO_RESPONSE", "Agent 未返回响应", duration)
+                            .withTrace(traceBuilder.build());
+                }
+
+                ChatUsage usage = response.getChatUsage();
+                TokenUsage tokenUsage = usage != null
+                        ? TokenUsage.of(usage.getInputTokens(), usage.getOutputTokens(),
+                            delegate.getModel() != null ? delegate.getModel().getModelName() : "unknown")
+                        : TokenUsage.of(0, 0, "unknown");
+
+                traceBuilder.step("AGENT_CALL", duration,
+                        "agent=%s, model=%s, promptTokens=%d, completionTokens=%d".formatted(
+                                id(), tokenUsage.modelId(),
+                                tokenUsage.promptTokens(), tokenUsage.completionTokens()));
+
+                executionSpan.setStatus(StatusCode.OK);
+                return TaskResult.success(
+                        id(), context.sessionId(), "text",
+                        Map.of("response", response.getTextContent(),
+                               "model", delegate.getModel() != null ? delegate.getModel().getModelName() : "unknown"),
+                        tokenUsage, duration
+                ).withTrace(traceBuilder.build());
+            } catch (RuntimeException e) {
+                executionSpan.setStatus(StatusCode.ERROR, e.getMessage());
+                executionSpan.recordException(e);
+                throw e;
+            } finally {
+                executionSpan.end();
             }
-
-            ChatUsage usage = response.getChatUsage();
-            TokenUsage tokenUsage = usage != null
-                    ? TokenUsage.of(usage.getInputTokens(), usage.getOutputTokens(),
-                        delegate.getModel() != null ? delegate.getModel().getModelName() : "unknown")
-                    : TokenUsage.of(0, 0, "unknown");
-
-            traceBuilder.step("AGENT_CALL", duration,
-                    "agent=%s, model=%s, promptTokens=%d, completionTokens=%d".formatted(
-                            id(), tokenUsage.modelId(),
-                            tokenUsage.promptTokens(), tokenUsage.completionTokens()));
-
-            return TaskResult.success(
-                    id(), context.sessionId(), "text",
-                    Map.of("response", response.getTextContent(),
-                           "model", delegate.getModel() != null ? delegate.getModel().getModelName() : "unknown"),
-                    tokenUsage, duration
-            ).withTrace(traceBuilder.build());
         };
+    }
+
+    /**
+     * 创建同步执行的框架根 span（未配置 OTel SDK 时返回 noop span，零开销）。
+     */
+    private Span beginExecutionSpan() {
+        Tracer tracer = GlobalOpenTelemetry.getTracer(TRACER_NAME);
+        String spanName = agentKey != null ? "jagent.execute " + agentKey : "jagent.execute " + id();
+        return tracer.spanBuilder(spanName)
+                .setAttribute("jagent.agent.key", agentKey != null ? agentKey : "")
+                .setAttribute("jagent.agent.id", id() != null ? id() : "")
+                .setAttribute("gen_ai.operation.name", "execute_agent")
+                .startSpan();
     }
 
     // ==================== 流式执行 ====================
@@ -343,8 +389,10 @@ public class AgentScopeAgentAdapter implements Agent {
     private TaskResult enrichTraceWithInterceptorSteps(TaskResult result, AgentContext context) {
         List<ExecutionTrace.Step> evalSteps = context.<List<ExecutionTrace.Step>>get("jagent.evaluation.steps").orElse(null);
         Long evalTime = context.<Long>get("jagent.evaluation.time").orElse(0L);
+        TraceSnapshot traceSnapshot = context.<TraceSnapshot>get("jagent.trace.snapshot").orElse(null);
 
-        if (evalSteps == null || evalSteps.isEmpty()) {
+        boolean hasEvalSteps = evalSteps != null && !evalSteps.isEmpty();
+        if (!hasEvalSteps && traceSnapshot == null) {
             return result;
         }
 
@@ -353,10 +401,12 @@ public class AgentScopeAgentAdapter implements Agent {
         if (originalTrace != null) {
             allSteps.addAll(originalTrace.steps());
         }
-        allSteps.addAll(evalSteps);
+        if (hasEvalSteps) {
+            allSteps.addAll(evalSteps);
+        }
 
         long totalTime = (originalTrace != null ? originalTrace.totalTime() : 0) + evalTime;
-        ExecutionTrace enrichedTrace = new ExecutionTrace(List.copyOf(allSteps), totalTime);
+        ExecutionTrace enrichedTrace = new ExecutionTrace(List.copyOf(allSteps), totalTime, traceSnapshot);
 
         return result.withTrace(enrichedTrace);
     }

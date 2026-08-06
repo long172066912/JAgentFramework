@@ -39,6 +39,9 @@ public class JAgentProperties {
     /** 评测相关配置 */
     private EvaluationConfig evaluation = new EvaluationConfig();
 
+    /** 链路追踪配置（OTel SDK 自动初始化） */
+    private TracingConfig tracing = new TracingConfig();
+
     /** 分布式存储配置 */
     private StoreConfig store = new StoreConfig();
 
@@ -54,8 +57,35 @@ public class JAgentProperties {
     public EvaluationConfig getEvaluation() { return evaluation; }
     public void setEvaluation(EvaluationConfig evaluation) { this.evaluation = evaluation; }
 
+    public TracingConfig getTracing() { return tracing; }
+    public void setTracing(TracingConfig tracing) { this.tracing = tracing; }
+
     public StoreConfig getStore() { return store; }
     public void setStore(StoreConfig store) { this.store = store; }
+
+    /**
+     * 链路追踪配置。
+     *
+     * <p>控制框架是否自动初始化 OpenTelemetry SDK（全局 TracerProvider）。
+     * Agent 级 span 埋点由各 Agent 的 {@code tracing-enabled} 单独控制。
+     */
+    public static class TracingConfig {
+        /** 是否自动初始化 OTel SDK（默认 true，classpath 无 OTel SDK 时自动跳过） */
+        private boolean enabled = true;
+        /** 是否启用日志导出器输出 span（默认 true，接入 OTLP/Jaeger 时可关闭） */
+        private boolean loggingExporter = true;
+        /** 服务名（写入 span 资源属性 service.name，默认取 spring.application.name） */
+        private String serviceName;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public boolean isLoggingExporter() { return loggingExporter; }
+        public void setLoggingExporter(boolean loggingExporter) { this.loggingExporter = loggingExporter; }
+
+        public String getServiceName() { return serviceName; }
+        public void setServiceName(String serviceName) { this.serviceName = serviceName; }
+    }
 
     /**
      * 模型相关配置。

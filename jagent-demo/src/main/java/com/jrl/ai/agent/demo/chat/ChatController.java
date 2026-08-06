@@ -78,10 +78,13 @@ public class ChatController {
     }
 
     /**
-     * 查询会话最新评测结果 — 返回置信度评分。
+     * 查询会话最新评测结果 — 返回置信度评分与链路快照。
+     *
+     * <p>链路快照（span 树 + 多维分析）随评测记录一同返回，
+     * 框架不持久化 span，无需二次查询。
      *
      * @param sessionId 会话 ID
-     * @return 置信度评分信息
+     * @return 评分信息 + 链路快照
      */
     @GetMapping("/evaluation")
     public Mono<Map<String, Object>> evaluation(@RequestParam String sessionId) {
@@ -95,12 +98,32 @@ public class ChatController {
             String label = score >= 0.9 ? "优秀" : score >= 0.7 ? "良好" : score >= 0.5 ? "一般" : "较差";
 
             Map<String, Object> dims = new LinkedHashMap<>();
-            latest.scores().forEach((dim, ds) -> dims.put(dim.name(), ds.score()));
+            latest.scores().forEach((dim, ds) -> {
+                Map<String, Object> d = new LinkedHashMap<>();
+                d.put("score", ds.score());
+                d.put("reason", ds.reason());
+                d.put("metrics", ds.metrics());
+                dims.put(dim.name(), d);
+            });
 
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("score", score);
             result.put("label", label);
             result.put("dimensions", dims);
+            result.put("traceId", latest.traceId());
+            result.put("evalId", latest.evalId());
+            // 链路快照归属专门的 trace（不放在评测字段内）
+            Map<String, Object> trace = new LinkedHashMap<>();
+            if (latest.trace() != null) {
+                trace.put("steps", latest.trace().steps());
+                trace.put("totalTime", latest.trace().totalTime());
+                if (latest.trace().otel() != null) {
+                    trace.put("traceId", latest.trace().otel().traceId());
+                    trace.put("analysis", latest.trace().otel().analysis());
+                    trace.put("spans", latest.trace().otel().spans());
+                }
+            }
+            result.put("trace", trace);
             return result;
         }).subscribeOn(Schedulers.boundedElastic());
     }

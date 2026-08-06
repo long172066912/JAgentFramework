@@ -1,17 +1,30 @@
 package com.jrl.ai.agent.agentscope.evaluation;
 
+import com.jrl.ai.agent.agentscope.adapter.AgentScopeAgentAdapter;
+import com.jrl.ai.agent.agentscope.tracing.EvaluationSpanProcessor;
 import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.agent.AgentInterceptor;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.evaluation.*;
+import com.jrl.ai.agent.core.evaluation.trace.SpanData;
+import com.jrl.ai.agent.core.evaluation.trace.TraceAnalysis;
+import com.jrl.ai.agent.core.evaluation.trace.TraceAnalyzer;
+import com.jrl.ai.agent.core.evaluation.trace.TraceBasedEvaluator;
+import com.jrl.ai.agent.core.evaluation.trace.TraceSnapshot;
 import com.jrl.ai.agent.core.io.ChatMessage;
 import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.core.task.TaskResult;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.api.trace.TraceFlags;
+import io.opentelemetry.api.trace.TraceState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -25,12 +38,23 @@ public class EvaluationInterceptor implements AgentInterceptor {
 
     private static final Logger log = LoggerFactory.getLogger(EvaluationInterceptor.class);
 
+    /** 评测 span 名称前缀（回写到执行链路，供追踪后端查看评分） */
+    private static final String EVALUATION_SPAN_PREFIX = "agent.evaluation";
+
+    /** OTel 追踪器名称（instrumentation scope） */
+    private static final String TRACER_NAME = "com.jrl.ai.agent.evaluation";
+
+    /** 默认等待链路 span 落库的最长时间（ms） */
+    private static final long DEFAULT_TRACE_AWAIT_MS = 500L;
+
     private final List<Evaluator> evaluators;
     private final CompositeScorer compositeScorer;
     private final EvaluationStore store;
     private final OptimizationAnalyzer optimizationAnalyzer;
     private final OptimizationReportStore optimizationReportStore;
     private final double confidenceThreshold;
+    private final EvaluationSpanProcessor spanProcessor;
+    private final long traceAwaitMs;
 
     /**
      * 创建评测拦截器（不含优化分析）。
@@ -78,12 +102,39 @@ public class EvaluationInterceptor implements AgentInterceptor {
                                  OptimizationAnalyzer optimizationAnalyzer,
                                  OptimizationReportStore optimizationReportStore,
                                  double confidenceThreshold) {
+        this(evaluators, compositeScorer, store, optimizationAnalyzer,
+                optimizationReportStore, confidenceThreshold, null, DEFAULT_TRACE_AWAIT_MS);
+    }
+
+    /**
+     * 创建评测拦截器（含优化分析、置信度阈值与链路分析能力）。
+     *
+     * @param evaluators              所有已注册的评测器
+     * @param compositeScorer         复合评分器
+     * @param store                   评测结果存储
+     * @param optimizationAnalyzer    优化分析器（可选）
+     * @param optimizationReportStore 优化报告存储（可选）
+     * @param confidenceThreshold     置信度阈值，低于此分数时触发优化建议
+     * @param spanProcessor           链路 span 捕获器（可选，提供后启用基于 trace 的多维分析；
+     *                                span 仅请求级暂存，评测后取走即弃，框架不做持久化）
+     * @param traceAwaitMs            等待链路 span 就绪的最长时间（ms）
+     */
+    public EvaluationInterceptor(List<Evaluator> evaluators,
+                                 CompositeScorer compositeScorer,
+                                 EvaluationStore store,
+                                 OptimizationAnalyzer optimizationAnalyzer,
+                                 OptimizationReportStore optimizationReportStore,
+                                 double confidenceThreshold,
+                                 EvaluationSpanProcessor spanProcessor,
+                                 long traceAwaitMs) {
         this.evaluators = evaluators;
         this.compositeScorer = compositeScorer;
         this.store = store;
         this.optimizationAnalyzer = optimizationAnalyzer;
         this.optimizationReportStore = optimizationReportStore;
         this.confidenceThreshold = confidenceThreshold;
+        this.spanProcessor = spanProcessor;
+        this.traceAwaitMs = traceAwaitMs;
     }
 
     @Override
@@ -98,14 +149,27 @@ public class EvaluationInterceptor implements AgentInterceptor {
                     "durationMs", result.durationMs()
             );
 
+            // 链路关联：适配器在同步执行时捕获的 traceId/spanId
+            String traceId = context.<String>get(AgentScopeAgentAdapter.CONTEXT_KEY_TRACE_ID).orElse(null);
+            String spanId = context.<String>get(AgentScopeAgentAdapter.CONTEXT_KEY_SPAN_ID).orElse(null);
+
+            // 链路分析：请求级暂存 span → 多维分析 → 冻结快照（span 用完即排空），
+            // 快照归入执行链路（ExecutionTrace.otel），不放评测结果
+            Map<String, Object> metadata = new HashMap<>();
+            TraceSnapshot traceSnapshot = collectTraceSnapshot(traceId);
+            if (traceSnapshot != null && traceSnapshot.analysis() != null) {
+                metadata.put(TraceBasedEvaluator.METADATA_KEY_ANALYSIS, traceSnapshot.analysis());
+            }
+
             EvaluationContext evalContext = new EvaluationContext(
                     agent.id(),
                     result.sessionId(),
+                    traceId,
                     input != null ? input.content() : null,
                     extractOutput(result),
                     result.trace(),
                     taskResultMap,
-                    Map.of()
+                    metadata
             );
 
             // 遍历所有评测器，合并评分，记录每个评测器的执行时间
@@ -157,15 +221,18 @@ public class EvaluationInterceptor implements AgentInterceptor {
             allSteps.addAll(evalSteps);
             long totalEvalTime = System.currentTimeMillis() - evalStart;
             ExecutionTrace enrichedTrace = new ExecutionTrace(List.copyOf(allSteps),
-                    originalTrace != null ? originalTrace.totalTime() + totalEvalTime : totalEvalTime);
+                    originalTrace != null ? originalTrace.totalTime() + totalEvalTime : totalEvalTime,
+                    traceSnapshot);
 
-            // 将评测步骤存储到上下文中，供适配器自动合并到主链路
+            // 将评测步骤与链路快照存储到上下文中，供适配器自动合并到主链路
             context.put("jagent.evaluation.steps", evalSteps);
             context.put("jagent.evaluation.time", totalEvalTime);
+            context.put("jagent.trace.snapshot", traceSnapshot);
 
-            // 构建最终评测结果
+            // 构建最终评测结果（链路快照随 ExecutionTrace.otel 返回，不在评测结果中重复携带）
             EvaluationResult finalResult = EvaluationResult.builder(agent.id())
                     .sessionId(result.sessionId())
+                    .traceId(traceId)
                     .scores(allScores)
                     .compositeScore(compositeScore)
                     .trace(enrichedTrace)
@@ -175,6 +242,9 @@ public class EvaluationInterceptor implements AgentInterceptor {
 
             // 持久化
             store.save(finalResult);
+
+            // 将评测结果回写到执行链路（同一 trace 下的 agent.evaluation span）
+            recordEvaluationSpan(traceId, spanId, agent, finalResult);
 
             log.info("[Evaluation] agent={} composite={} dims={} evalTime={}ms",
                     agent.id(), String.format("%.2f", compositeScore), allScores.size(), totalEvalTime);
@@ -204,6 +274,64 @@ public class EvaluationInterceptor implements AgentInterceptor {
 
         } catch (Exception e) {
             log.error("[Evaluation] Failed to evaluate agent={}: {}", agent.id(), e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 收集并冻结执行链路快照 — 等待 span 就绪后做多维分析，
+     * 随即取走并清空请求级缓冲（框架不持久化 span，其归宿是 OTel 追踪后端）。
+     *
+     * @param traceId 执行链路 trace ID（可为 null）
+     * @return 链路快照，无链路数据时返回 null
+     */
+    private TraceSnapshot collectTraceSnapshot(String traceId) {
+        if (spanProcessor == null || traceId == null) {
+            return null;
+        }
+        try {
+            spanProcessor.awaitSpans(traceId, traceAwaitMs);
+            List<SpanData> spans = spanProcessor.takeSpans(traceId);
+            if (spans.isEmpty()) {
+                log.debug("[Evaluation] traceId={} 无 span 数据，跳过链路分析", traceId);
+                return null;
+            }
+            TraceAnalysis analysis = TraceAnalyzer.analyze(traceId, spans);
+            return new TraceSnapshot(traceId, analysis,
+                    spans.stream().map(TraceSnapshot.SpanView::from).toList());
+        } catch (Exception e) {
+            log.warn("[Evaluation] 链路快照收集失败 traceId={}: {}", traceId, e.getMessage());
+            spanProcessor.takeSpans(traceId);
+            return null;
+        }
+    }
+
+    /**
+     * 将评测结果回写到 OTel 链路 — 在执行根 span 下创建 {@code agent.evaluation} span，
+     * 携带总分与各维度评分属性，追踪后端可直接查看评分。
+     *
+     * <p>未配置 OTel SDK 时为 noop，零开销。
+     */
+    private void recordEvaluationSpan(String traceId, String parentSpanId,
+                                      Agent agent, EvaluationResult finalResult) {
+        if (traceId == null || parentSpanId == null) {
+            return;
+        }
+        try {
+            SpanContext parentContext = SpanContext.create(
+                    traceId, parentSpanId, TraceFlags.getSampled(), TraceState.getDefault());
+            Span evalSpan = GlobalOpenTelemetry.getTracer(TRACER_NAME)
+                    .spanBuilder(EVALUATION_SPAN_PREFIX)
+                    .setParent(io.opentelemetry.context.Context.root().with(Span.wrap(parentContext)))
+                    .setAttribute("jagent.evaluation.id", finalResult.evalId())
+                    .setAttribute("jagent.evaluation.composite_score", finalResult.compositeScore())
+                    .setAttribute("gen_ai.agent.id", agent.id() != null ? agent.id() : "")
+                    .startSpan();
+            finalResult.scores().forEach((dimension, score) ->
+                    evalSpan.setAttribute("jagent.evaluation.score." + dimension.name().toLowerCase(),
+                            score.score()));
+            evalSpan.end();
+        } catch (Exception e) {
+            log.warn("[Evaluation] 评测结果回写链路失败: {}", e.getMessage());
         }
     }
 

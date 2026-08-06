@@ -10,6 +10,7 @@ import com.jrl.ai.agent.agentscope.storage.DistributedStoreProvider;
 import com.jrl.ai.agent.agentscope.storage.JsonFileKVStore;
 import com.jrl.ai.agent.agentscope.adapter.AgentScopeModelAdapter;
 import com.jrl.ai.agent.agentscope.model.OpenAICompatibleModel;
+import com.jrl.ai.agent.agentscope.tracing.EvaluationSpanProcessor;
 import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
 import com.jrl.ai.agent.agentscope.evaluation.*;
 import com.jrl.ai.agent.core.agent.AgentExecutionListener;
@@ -18,6 +19,7 @@ import com.jrl.ai.agent.core.agent.AgentInterceptor;
 import com.jrl.ai.agent.core.agent.AgentLifecycle;
 import com.jrl.ai.agent.core.agent.AgentRegistry;
 import com.jrl.ai.agent.core.evaluation.*;
+import com.jrl.ai.agent.core.evaluation.trace.TraceBasedEvaluator;
 import com.jrl.ai.agent.core.feedback.OutputFeedbackHandler;
 import com.jrl.ai.agent.core.memory.MemoryStore;
 import com.jrl.ai.agent.core.model.ModelRegistry;
@@ -512,6 +514,7 @@ public class JAgentAutoConfiguration {
      * @param store                   评测结果存储
      * @param optimizationAnalyzer    优化分析器（可选）
      * @param optimizationReportStore 优化报告存储（可选）
+     * @param spanProcessor           链路 span 捕获器（可选，提供后启用基于 trace 的多维分析）
      * @return EvaluationInterceptor 实例
      */
     @Bean
@@ -522,14 +525,45 @@ public class JAgentAutoConfiguration {
             CompositeScorer compositeScorer,
             EvaluationStore store,
             ObjectProvider<OptimizationAnalyzer> optimizationAnalyzer,
-            ObjectProvider<OptimizationReportStore> optimizationReportStore) {
+            ObjectProvider<OptimizationReportStore> optimizationReportStore,
+            ObjectProvider<EvaluationSpanProcessor> spanProcessor) {
         List<Evaluator> evaluatorList = evaluators.orderedStream().toList();
         double confidenceThreshold = properties.getEvaluation().getOptimization().getConfidenceThreshold();
-        log.info("[EvaluationInterceptor] Creating with {} evaluators, confidenceThreshold={}",
-                evaluatorList.size(), confidenceThreshold);
+        log.info("[EvaluationInterceptor] Creating with {} evaluators, confidenceThreshold={}, traceAnalysis={}",
+                evaluatorList.size(), confidenceThreshold, spanProcessor.getIfAvailable() != null);
         return new EvaluationInterceptor(evaluatorList, compositeScorer, store,
                 optimizationAnalyzer.getIfAvailable(), optimizationReportStore.getIfAvailable(),
-                confidenceThreshold);
+                confidenceThreshold, spanProcessor.getIfAvailable(), 500L);
+    }
+
+    /**
+     * 注册评测链路 Span 捕获器 — 请求级临时缓冲，由 {@link JAgentOtelAutoConfiguration}
+     * 自动挂载到全局 TracerProvider；评测完成后 span 即被取走排空，框架不做持久化
+     * （span 数据的归宿是 OTel 追踪后端）。
+     *
+     * <p>仅当 classpath 存在 OTel SDK 时生效。
+     *
+     * @return EvaluationSpanProcessor 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnClass(io.opentelemetry.sdk.trace.SpanProcessor.class)
+    @ConditionalOnProperty(name = "jagent.evaluation.enabled", havingValue = "true")
+    public EvaluationSpanProcessor evaluationSpanProcessor() {
+        log.info("[EvaluationSpanProcessor] Creating — 将由 JAgentOtelAutoConfiguration 自动挂载到 TracerProvider");
+        return new EvaluationSpanProcessor();
+    }
+
+    /**
+     * 注册基于 Trace 的评测器 — 从链路视角分析性能耗时分布、推理效率与可靠性。
+     *
+     * @return TraceBasedEvaluator 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "jagent.evaluation.enabled", havingValue = "true")
+    public TraceBasedEvaluator traceBasedEvaluator() {
+        return new TraceBasedEvaluator();
     }
 
     /**

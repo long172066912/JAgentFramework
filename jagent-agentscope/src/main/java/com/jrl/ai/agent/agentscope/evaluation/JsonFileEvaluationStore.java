@@ -110,6 +110,7 @@ public class JsonFileEvaluationStore implements EvaluationStore {
         sb.append("  \"evalId\": \"").append(result.evalId()).append("\",\n");
         sb.append("  \"agentId\": \"").append(result.agentId()).append("\",\n");
         sb.append("  \"sessionId\": \"").append(result.sessionId() != null ? result.sessionId() : "").append("\",\n");
+        sb.append("  \"traceId\": \"").append(result.traceId() != null ? result.traceId() : "").append("\",\n");
         sb.append("  \"compositeScore\": ").append(result.compositeScore()).append(",\n");
         sb.append("  \"timestamp\": \"").append(result.timestamp()).append("\",\n");
         sb.append("  \"input\": ").append(jsonString(result.input())).append(",\n");
@@ -120,9 +121,10 @@ public class JsonFileEvaluationStore implements EvaluationStore {
         for (var entry : result.scores().entrySet()) {
             DimensionScore ds = entry.getValue();
             scoreEntries.add(String.format(
-                    "    \"%s\": {\"score\": %.4f, \"level\": \"%s\", \"reason\": %s}",
+                    "    \"%s\": {\"score\": %.4f, \"level\": \"%s\", \"reason\": %s, \"metrics\": %s}",
                     entry.getKey().name(), ds.score(), ds.level().name(),
-                    jsonString(ds.reason())
+                    jsonString(ds.reason()),
+                    metricsJson(ds.metrics())
             ));
         }
         sb.append(String.join(",\n", scoreEntries));
@@ -134,5 +136,23 @@ public class JsonFileEvaluationStore implements EvaluationStore {
         if (value == null) return "null";
         return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"")
                 .replace("\n", "\\n").replace("\r", "\\r") + "\"";
+    }
+
+    /**
+     * 序列化评分指标（如 trace 分析的耗时分布/Token 消耗）。
+     */
+    private String metricsJson(java.util.Map<String, Object> metrics) {
+        if (metrics == null || metrics.isEmpty()) {
+            return "{}";
+        }
+        List<String> entries = new ArrayList<>();
+        for (var entry : metrics.entrySet()) {
+            Object value = entry.getValue();
+            String jsonValue = value instanceof Number
+                    ? String.valueOf(value)
+                    : jsonString(String.valueOf(value));
+            entries.add("\"" + entry.getKey() + "\": " + jsonValue);
+        }
+        return "{" + String.join(", ", entries) + "}";
     }
 }

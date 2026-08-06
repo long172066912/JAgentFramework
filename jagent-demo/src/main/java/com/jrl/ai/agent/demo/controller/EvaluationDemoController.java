@@ -1,15 +1,25 @@
 package com.jrl.ai.agent.demo.controller;
 
 import com.jrl.ai.agent.agentscope.config.AgentFactory;
+import com.jrl.ai.agent.agentscope.config.AgentResponseHelper;
+import com.jrl.ai.agent.agentscope.tracing.EvaluationSpanProcessor;
 import com.jrl.ai.agent.core.agent.Agent;
 import com.jrl.ai.agent.core.context.AgentContext;
 import com.jrl.ai.agent.core.evaluation.*;
+import com.jrl.ai.agent.core.evaluation.trace.SpanData;
+import com.jrl.ai.agent.core.evaluation.trace.TraceAnalysis;
+import com.jrl.ai.agent.core.evaluation.trace.TraceAnalyzer;
+import com.jrl.ai.agent.core.evaluation.trace.TraceBasedEvaluator;
+import com.jrl.ai.agent.core.evaluation.trace.TraceSnapshot;
 import com.jrl.ai.agent.core.io.ChatMessage;
+import com.jrl.ai.agent.core.task.ExecutionTrace;
 import com.jrl.ai.agent.core.task.TaskResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -28,15 +38,18 @@ public class EvaluationDemoController {
     private final EvaluationStore evaluationStore;
     private final List<Evaluator> evaluators;
     private final CompositeScorer compositeScorer;
+    private final EvaluationSpanProcessor spanProcessor;
 
     public EvaluationDemoController(AgentFactory agentFactory,
                                     EvaluationStore evaluationStore,
                                     List<Evaluator> evaluators,
-                                    CompositeScorer compositeScorer) {
+                                    CompositeScorer compositeScorer,
+                                    ObjectProvider<EvaluationSpanProcessor> spanProcessor) {
         this.agentFactory = agentFactory;
         this.evaluationStore = evaluationStore;
         this.evaluators = evaluators;
         this.compositeScorer = compositeScorer;
+        this.spanProcessor = spanProcessor.getIfAvailable();
     }
 
     /**
@@ -70,16 +83,30 @@ public class EvaluationDemoController {
 
         TaskResult result = agent.execute(ChatMessage.user(input), context);
 
-        // 2. 构建评测上下文
+        // 2. 构建评测上下文（携带 OTel traceId 与链路分析结果，span 用完即排空）
         String outputText = extractOutput(result);
+        String traceId = context.<String>get("jagent.otel.traceId").orElse(null);
+        Map<String, Object> metadata = new HashMap<>();
+        TraceSnapshot traceSnapshot = null;
+        if (spanProcessor != null && traceId != null) {
+            spanProcessor.awaitSpans(traceId, 500L);
+            List<SpanData> spans = spanProcessor.takeSpans(traceId);
+            if (!spans.isEmpty()) {
+                TraceAnalysis analysis = TraceAnalyzer.analyze(traceId, spans);
+                metadata.put(TraceBasedEvaluator.METADATA_KEY_ANALYSIS, analysis);
+                traceSnapshot = new TraceSnapshot(traceId, analysis,
+                        spans.stream().map(TraceSnapshot.SpanView::from).toList());
+            }
+        }
         EvaluationContext evalContext = new EvaluationContext(
                 agent.id(),
                 context.sessionId(),
+                traceId,
                 input,
                 outputText,
                 result.trace(),
                 Map.of("status", result.status().name()),
-                Map.of()
+                metadata
         );
 
         // 3. 执行所有评测器
@@ -96,12 +123,17 @@ public class EvaluationDemoController {
         // 4. 计算加权总分
         double compositeScore = compositeScorer.compute(allScores);
 
-        // 5. 构建并保存评测结果
+        // 5. 构建并保存评测结果（链路快照挂在 trace.otel，不放入评测结果）
+        ExecutionTrace finalTrace = new ExecutionTrace(
+                result.trace() != null ? result.trace().steps() : List.of(),
+                result.trace() != null ? result.trace().totalTime() : 0L,
+                traceSnapshot);
         EvaluationResult evaluationResult = EvaluationResult.builder(agent.id())
                 .sessionId(context.sessionId())
+                .traceId(traceId)
                 .scores(allScores)
                 .compositeScore(compositeScore)
-                .trace(result.trace())
+                .trace(finalTrace)
                 .input(input)
                 .output(outputText)
                 .build();
@@ -115,6 +147,7 @@ public class EvaluationDemoController {
                 "input", input,
                 "output", outputText != null ? outputText : "",
                 "duration", result.durationMs() + "ms",
+                "trace", AgentResponseHelper.toTraceMap(finalTrace),
                 "evaluation", Map.of(
                         "compositeScore", compositeScore,
                         "dimensions", allScores,

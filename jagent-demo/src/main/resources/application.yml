@@ -1,6 +1,10 @@
 server:
   port: 8080
 
+spring:
+  jackson:
+    default-property-inclusion: non_null
+
 jagent:
 # 配置多节点信息共享
 #  store:

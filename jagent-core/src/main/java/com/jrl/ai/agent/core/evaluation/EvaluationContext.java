@@ -11,6 +11,7 @@ import java.util.Map;
  *
  * @param agentId    Agent 标识
  * @param sessionId  会话 ID（可选）
+ * @param traceId    分布式追踪 trace ID（可选，用于链路关联分析）
  * @param input      用户输入
  * @param output     Agent 输出
  * @param trace      执行链路追踪
@@ -20,6 +21,7 @@ import java.util.Map;
 public record EvaluationContext(
         String agentId,
         String sessionId,
+        String traceId,
         String input,
         String output,
         ExecutionTrace trace,
@@ -28,7 +30,7 @@ public record EvaluationContext(
 ) {
 
     /**
-     * 快速创建评测上下文（无附加元数据）。
+     * 快速创建评测上下文（无追踪关联、无附加元数据）。
      *
      * @param agentId Agent 标识
      * @param input   用户输入
@@ -37,6 +39,6 @@ public record EvaluationContext(
      * @return 评测上下文实例
      */
     public static EvaluationContext of(String agentId, String input, String output, ExecutionTrace trace) {
-        return new EvaluationContext(agentId, null, input, output, trace, Map.of(), Map.of());
+        return new EvaluationContext(agentId, null, null, input, output, trace, Map.of(), Map.of());
     }
 }

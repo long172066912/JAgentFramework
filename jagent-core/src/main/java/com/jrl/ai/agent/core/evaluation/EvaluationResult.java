@@ -14,6 +14,7 @@ import java.util.UUID;
  * @param evalId         评测唯一 ID
  * @param agentId        Agent 标识
  * @param sessionId      会话 ID（可选）
+ * @param traceId        分布式追踪 trace ID（可选，用于在追踪后端关联查看评测结果）
  * @param scores         各维度评分（key = 维度名称）
  * @param compositeScore 加权总分（0.0 ~ 1.0）
  * @param trace          执行链路追踪
@@ -25,6 +26,7 @@ public record EvaluationResult(
         String evalId,
         String agentId,
         String sessionId,
+        String traceId,
         Map<EvaluationDimension, DimensionScore> scores,
         double compositeScore,
         ExecutionTrace trace,
@@ -44,12 +46,29 @@ public record EvaluationResult(
     }
 
     /**
+     * 返回剥离了内部执行链路的副本 — 用于 API 响应。
+     *
+     * <p>链路信息统一由响应外层的 {@code trace} 字段承载，
+     * 评测结果在响应中只包含评分数据，避免重复嵌套。
+     *
+     * @return 不含执行链路的评测结果副本
+     */
+    public EvaluationResult withoutTrace() {
+        if (trace == null) {
+            return this;
+        }
+        return new EvaluationResult(evalId, agentId, sessionId, traceId, scores,
+                compositeScore, null, input, output, timestamp);
+    }
+
+    /**
      * 评测结果 Builder — 支持逐步构建评测结果。
      */
     public static class Builder {
         private final String evalId = UUID.randomUUID().toString();
         private final String agentId;
         private String sessionId;
+        private String traceId;
         private Map<EvaluationDimension, DimensionScore> scores = Map.of();
         private double compositeScore;
         private ExecutionTrace trace;
@@ -66,6 +85,14 @@ public record EvaluationResult(
          */
         public Builder sessionId(String sessionId) {
             this.sessionId = sessionId;
+            return this;
+        }
+
+        /**
+         * 设置分布式追踪 trace ID（关联评测结果与执行链路）。
+         */
+        public Builder traceId(String traceId) {
+            this.traceId = traceId;
             return this;
         }
 
@@ -122,7 +149,7 @@ public record EvaluationResult(
          */
         public EvaluationResult build() {
             return new EvaluationResult(
-                    evalId, agentId, sessionId, scores,
+                    evalId, agentId, sessionId, traceId, scores,
                     compositeScore, trace, input, output, timestamp
             );
         }

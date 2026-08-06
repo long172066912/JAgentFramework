@@ -164,8 +164,11 @@ public class AgentResponseHelper {
     /**
      * 将 ExecutionTrace 转换为响应 Map。
      *
+     * <p>业务步骤（steps）与 OTel 链路快照（traceId/analysis/spans）
+     * 平铺在同一 trace 对象内，随响应一次返回。
+     *
      * @param trace 执行链路（null 时返回空 Map）
-     * @return 包含 steps 和 totalTime 的 Map
+     * @return 包含 steps、totalTime，以及可选的 traceId/analysis/spans 的 Map
      */
     public static Map<String, Object> toTraceMap(ExecutionTrace trace) {
         if (trace == null) {
@@ -178,17 +181,22 @@ public class AgentResponseHelper {
                         "detail", s.detail() != null ? s.detail() : ""
                 ))
                 .toList();
-        return Map.of(
-                "steps", steps,
-                "totalTime", trace.totalTime()
-        );
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("steps", steps);
+        result.put("totalTime", trace.totalTime());
+        if (trace.otel() != null) {
+            result.put("traceId", trace.otel().traceId());
+            result.put("analysis", trace.otel().analysis());
+            result.put("spans", trace.otel().spans());
+        }
+        return result;
     }
 
     /**
      * 将 EvaluationResult 转换为响应 Map。
      *
      * @param evaluation 评测结果（null 时返回空 Map）
-     * @return 包含 evalId、compositeScore、dimensions 的 Map
+     * @return 包含 evalId、traceId、compositeScore、dimensions 的 Map
      */
     public static Map<String, Object> toEvaluationMap(EvaluationResult evaluation) {
         if (evaluation == null) {
@@ -205,11 +213,12 @@ public class AgentResponseHelper {
             dimMap.put("metrics", ds.metrics() != null ? ds.metrics() : Map.of());
             dimensions.put(entry.getKey().name(), dimMap);
         }
-        return Map.of(
-                "evalId", evaluation.evalId(),
-                "compositeScore", evaluation.compositeScore(),
-                "dimensions", dimensions
-        );
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("evalId", evaluation.evalId());
+        result.put("traceId", evaluation.traceId() != null ? evaluation.traceId() : "");
+        result.put("compositeScore", evaluation.compositeScore());
+        result.put("dimensions", dimensions);
+        return result;
     }
 
     /**

@@ -12,6 +12,10 @@ dependencies {
     // Micrometer 监控（编译期引用，运行时由使用方提供）
     compileOnly 'io.micrometer:micrometer-core:1.14.4'
 
+    // OpenTelemetry SDK（链路追踪自动初始化 + 评测 span 捕获，编译期引用，运行时由使用方提供 SDK）
+    compileOnly 'io.opentelemetry:opentelemetry-sdk:1.61.0'
+    compileOnly 'io.opentelemetry:opentelemetry-exporter-logging:1.61.0'
+
     // Caffeine 本地缓存（任务上下文 TTL 管理）
     api 'com.github.ben-manes.caffeine:caffeine:3.1.8'
 
