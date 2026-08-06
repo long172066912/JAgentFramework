@@ -46,9 +46,11 @@ public class AgentExecutor {
     private final AgentFactory agentFactory;
     private final EvaluationStore evaluationStore;
     private final OptimizationReportStore optimizationReportStore;
+    /** 评测是否同步返回（异步评测时响应不回填评测，避免带出上一轮的陈旧结果） */
+    private final boolean evaluationSyncResponse;
 
     /**
-     * 创建 AgentExecutor。
+     * 创建 AgentExecutor（评测默认同步返回，兼容旧行为）。
      *
      * @param agentFactory            Agent 工厂
      * @param evaluationStore         评测结果存储（可选，用于查询结果）
@@ -57,11 +59,28 @@ public class AgentExecutor {
     public AgentExecutor(AgentFactory agentFactory,
                          EvaluationStore evaluationStore,
                          OptimizationReportStore optimizationReportStore) {
+        this(agentFactory, evaluationStore, optimizationReportStore, true);
+    }
+
+    /**
+     * 创建 AgentExecutor。
+     *
+     * @param agentFactory             Agent 工厂
+     * @param evaluationStore          评测结果存储（可选，用于查询结果）
+     * @param optimizationReportStore  优化报告存储（可选，用于查询结果）
+     * @param evaluationSyncResponse   评测是否同步返回；false（异步评测）时响应不携带评测数据，
+     *                                 结果落库后通过查询接口获取
+     */
+    public AgentExecutor(AgentFactory agentFactory,
+                         EvaluationStore evaluationStore,
+                         OptimizationReportStore optimizationReportStore,
+                         boolean evaluationSyncResponse) {
         this.agentFactory = agentFactory;
         this.evaluationStore = evaluationStore;
         this.optimizationReportStore = optimizationReportStore;
-        log.info("[AgentExecutor] Initialized: evaluationStore={}, optimizationReportStore={}",
-                evaluationStore != null, optimizationReportStore != null);
+        this.evaluationSyncResponse = evaluationSyncResponse;
+        log.info("[AgentExecutor] Initialized: evaluationStore={}, optimizationReportStore={}, evaluationSyncResponse={}",
+                evaluationStore != null, optimizationReportStore != null, evaluationSyncResponse);
     }
 
     // ==================== 同步通道 ====================
@@ -245,11 +264,14 @@ public class AgentExecutor {
     /**
      * 自动查询评测结果和优化建议，追加到响应中。
      *
+     * <p>仅在同步评测模式下执行；异步评测时本轮结果尚未落库，
+     * 回填会带出上一轮的陈旧数据，故直接跳过。
+     *
      * <p>响应中的评测仅包含评分数据（剥离内部 trace）——
      * 链路信息统一由响应外层的 {@code trace} 字段承载。
      */
     private <T> AgentResponse<T> enrichWithEvaluation(AgentResponse<T> response, String agentId) {
-        if (evaluationStore == null) {
+        if (evaluationStore == null || !evaluationSyncResponse) {
             return response;
         }
 

@@ -128,6 +128,7 @@ jagent:
         category_level_infer: 0.8
   evaluation:
     enabled: true
+    sync-response: false  # 异步评测：不阻塞响应，结果落库后经查询接口获取；true 则同步返回评测
     llm-judge-enabled: true
     llm-judge-model: "openai:qwen3.8-max-preview"
     latency-threshold-ms: 10000

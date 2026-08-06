@@ -117,6 +117,8 @@ public class JAgentProperties {
         private String llmJudgePrompt;
         /** 性能阈值（ms） */
         private long latencyThresholdMs = 10000;
+        /** 是否在响应中同步返回评测结果（默认 false：异步评测不阻塞响应，结果落库后通过查询接口获取） */
+        private boolean syncResponse = false;
         /** 五维权重 */
         private Map<String, Double> weights = new LinkedHashMap<>();
         /** 优化分析配置 */
@@ -136,6 +138,9 @@ public class JAgentProperties {
 
         public long getLatencyThresholdMs() { return latencyThresholdMs; }
         public void setLatencyThresholdMs(long latencyThresholdMs) { this.latencyThresholdMs = latencyThresholdMs; }
+
+        public boolean isSyncResponse() { return syncResponse; }
+        public void setSyncResponse(boolean syncResponse) { this.syncResponse = syncResponse; }
 
         public Map<String, Double> getWeights() { return weights; }
         public void setWeights(Map<String, Double> weights) { this.weights = weights; }

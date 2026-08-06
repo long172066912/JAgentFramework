@@ -529,11 +529,12 @@ public class JAgentAutoConfiguration {
             ObjectProvider<EvaluationSpanProcessor> spanProcessor) {
         List<Evaluator> evaluatorList = evaluators.orderedStream().toList();
         double confidenceThreshold = properties.getEvaluation().getOptimization().getConfidenceThreshold();
-        log.info("[EvaluationInterceptor] Creating with {} evaluators, confidenceThreshold={}, traceAnalysis={}",
-                evaluatorList.size(), confidenceThreshold, spanProcessor.getIfAvailable() != null);
+        boolean syncResponse = properties.getEvaluation().isSyncResponse();
+        log.info("[EvaluationInterceptor] Creating with {} evaluators, confidenceThreshold={}, traceAnalysis={}, syncResponse={}",
+                evaluatorList.size(), confidenceThreshold, spanProcessor.getIfAvailable() != null, syncResponse);
         return new EvaluationInterceptor(evaluatorList, compositeScorer, store,
                 optimizationAnalyzer.getIfAvailable(), optimizationReportStore.getIfAvailable(),
-                confidenceThreshold, spanProcessor.getIfAvailable(), 500L);
+                confidenceThreshold, spanProcessor.getIfAvailable(), 500L, !syncResponse);
     }
 
     /**
@@ -614,13 +615,15 @@ public class JAgentAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public AgentExecutor agentExecutor(
+            JAgentProperties properties,
             AgentFactory agentFactory,
             ObjectProvider<EvaluationStore> evaluationStore,
             ObjectProvider<OptimizationReportStore> optimizationReportStore) {
         return new AgentExecutor(
                 agentFactory,
                 evaluationStore.getIfAvailable(),
-                optimizationReportStore.getIfAvailable()
+                optimizationReportStore.getIfAvailable(),
+                properties.getEvaluation().isSyncResponse()
         );
     }
 }

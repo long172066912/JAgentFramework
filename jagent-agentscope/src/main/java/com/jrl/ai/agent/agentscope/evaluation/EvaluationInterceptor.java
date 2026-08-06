@@ -33,6 +33,10 @@ import java.util.Map;
  *
  * <p>通过配置 {@code jagent.evaluation.enabled=true} 启用，
  * 自动收集所有已注册的 {@link Evaluator} Bean 并依次执行评测。
+ *
+ * <p>默认异步模式：评测链（含 LLM 评测与优化分析，可能耗时 10s+）在虚拟线程中执行，
+ * 不阻塞业务响应；结果由 {@link EvaluationStore} 持久化，后续通过查询接口获取。
+ * 需要同步返回评测时，构造时传 {@code async=false}。
  */
 public class EvaluationInterceptor implements AgentInterceptor {
 
@@ -55,6 +59,8 @@ public class EvaluationInterceptor implements AgentInterceptor {
     private final double confidenceThreshold;
     private final EvaluationSpanProcessor spanProcessor;
     private final long traceAwaitMs;
+    /** 是否异步执行评测链（true 时不阻塞业务响应，评测在虚拟线程中执行） */
+    private final boolean async;
 
     /**
      * 创建评测拦截器（不含优化分析）。
@@ -127,6 +133,33 @@ public class EvaluationInterceptor implements AgentInterceptor {
                                  double confidenceThreshold,
                                  EvaluationSpanProcessor spanProcessor,
                                  long traceAwaitMs) {
+        this(evaluators, compositeScorer, store, optimizationAnalyzer,
+                optimizationReportStore, confidenceThreshold, spanProcessor, traceAwaitMs, true);
+    }
+
+    /**
+     * 创建评测拦截器（可指定同步/异步模式）。
+     *
+     * @param evaluators              所有已注册的评测器
+     * @param compositeScorer         复合评分器
+     * @param store                   评测结果存储（负责持久化，异步模式下是结果的唯一出口）
+     * @param optimizationAnalyzer    优化分析器（可选，随评测链一同异步执行）
+     * @param optimizationReportStore 优化报告存储（可选）
+     * @param confidenceThreshold     置信度阈值，低于此分数时触发优化建议
+     * @param spanProcessor           链路 span 捕获器（可选，提供后启用基于 trace 的多维分析；
+     *                                span 仅请求级暂存，评测后取走即弃，框架不做持久化）
+     * @param traceAwaitMs            等待链路 span 就绪的最长时间（ms）
+     * @param async                   是否异步执行评测链（true 时不阻塞业务响应）
+     */
+    public EvaluationInterceptor(List<Evaluator> evaluators,
+                                 CompositeScorer compositeScorer,
+                                 EvaluationStore store,
+                                 OptimizationAnalyzer optimizationAnalyzer,
+                                 OptimizationReportStore optimizationReportStore,
+                                 double confidenceThreshold,
+                                 EvaluationSpanProcessor spanProcessor,
+                                 long traceAwaitMs,
+                                 boolean async) {
         this.evaluators = evaluators;
         this.compositeScorer = compositeScorer;
         this.store = store;
@@ -135,11 +168,35 @@ public class EvaluationInterceptor implements AgentInterceptor {
         this.confidenceThreshold = confidenceThreshold;
         this.spanProcessor = spanProcessor;
         this.traceAwaitMs = traceAwaitMs;
+        this.async = async;
+    }
+
+    /**
+     * 是否异步执行评测链。
+     *
+     * @return true 表示评测不阻塞业务响应
+     */
+    public boolean isAsync() {
+        return async;
     }
 
     @Override
     public void afterExecute(Agent agent, ChatMessage input, AgentContext context, TaskResult result) {
-        log.info("[Evaluation] afterExecute triggered for agent={}", agent.id());
+        if (async) {
+            // 异步模式：评测链（含 LLM 评测与优化分析）丢到虚拟线程执行，业务响应立即返回；
+            // 结果由 EvaluationStore 持久化，后续通过查询接口获取
+            log.info("[Evaluation] async dispatched for agent={}", agent.id());
+            Thread.startVirtualThread(() -> doEvaluate(agent, input, context, result));
+            return;
+        }
+        doEvaluate(agent, input, context, result);
+    }
+
+    /**
+     * 执行完整评测链 — 同步模式下由 afterExecute 直接调用，异步模式下在虚拟线程中执行。
+     */
+    private void doEvaluate(Agent agent, ChatMessage input, AgentContext context, TaskResult result) {
+        log.info("[Evaluation] doEvaluate started for agent={}", agent.id());
         long evalStart = System.currentTimeMillis();
 
         try {
