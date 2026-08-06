@@ -225,8 +225,8 @@ public class JAgentProperties {
         private boolean memoryEnabled = false;
         /** 是否启用 DashScope 联网搜索（默认 false，仅 dashscope provider 支持） */
         private boolean enableSearch = false;
-        /** 是否启用模型推理/思考模式（默认 false，开启后响应更慢但更深入） */
-        private boolean enableThinking = false;
+        /** 模型推理/思考模式三态：不配置=null（不传参数，服务端默认）；true 显式开启；false 显式关闭（qwen3 系列默认思考，抽取类任务建议关闭提速） */
+        private Boolean enableThinking;
         /** 是否启用 Plan Mode 规划模式（默认 false，开启后复杂任务先规划再执行） */
         private boolean planModeEnabled = false;
         /** 是否启用 OpenTelemetry 链路追踪（默认 true，开启后可视化执行链路；未配置 OTel SDK 时零开销） */
@@ -277,8 +277,8 @@ public class JAgentProperties {
         public boolean isEnableSearch() { return enableSearch; }
         public void setEnableSearch(boolean enableSearch) { this.enableSearch = enableSearch; }
 
-        public boolean isEnableThinking() { return enableThinking; }
-        public void setEnableThinking(boolean enableThinking) { this.enableThinking = enableThinking; }
+        public Boolean getEnableThinking() { return enableThinking; }
+        public void setEnableThinking(Boolean enableThinking) { this.enableThinking = enableThinking; }
 
         public boolean isPlanModeEnabled() { return planModeEnabled; }
         public void setPlanModeEnabled(boolean planModeEnabled) { this.planModeEnabled = planModeEnabled; }

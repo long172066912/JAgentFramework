@@ -116,7 +116,8 @@ jagent:
         }}
         ```
       model: "openai:qwen3.8-max-preview"
-      max-iters: 3
+      enable-thinking: false  # 显式关闭思考模式：qwen3 默认思考，抽取类任务关掉可大幅提速
+      max-iters: 2
       max-retries: 3
       require-confirm-tools:
         - vector_upsert

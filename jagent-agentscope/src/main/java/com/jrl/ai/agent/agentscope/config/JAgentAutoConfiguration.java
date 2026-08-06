@@ -404,7 +404,7 @@ public class JAgentAutoConfiguration {
         io.agentscope.core.model.Model delegate = switch (provider.toLowerCase()) {
             case "dashscope" -> DashScopeChatModel.builder()
                     .apiKey(apiKey).modelName(modelName).stream(true).baseUrl(baseUrl).build();
-            case "openai" -> new OpenAICompatibleModel(apiKey, modelName, baseUrl, false, false);
+            case "openai" -> new OpenAICompatibleModel(apiKey, modelName, baseUrl, false, null);
             default -> {
                 log.warn("LLMJudge: 暂不支持自动构建 {} 的 Model，回退到环境变量方式", provider);
                 yield null;

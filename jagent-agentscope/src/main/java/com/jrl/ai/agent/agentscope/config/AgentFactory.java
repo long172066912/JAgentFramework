@@ -252,7 +252,7 @@ public class AgentFactory implements AgentRegistry {
             configurePermission(builder, config, key);
 
             // 如果 YAML 中配置了 API Key，直接构建 Model 对象（避免依赖环境变量）
-            Model model = buildModel(config.getModel(), config.isEnableSearch(), config.isEnableThinking());
+            Model model = buildModel(config.getModel(), config.isEnableSearch(), config.getEnableThinking());
             if (model != null) {
                 builder.model(model);
             } else {
@@ -294,7 +294,7 @@ public class AgentFactory implements AgentRegistry {
                 // 注册模型解析器，让子 Agent 能通过字符串引用找到 Model 对象
                 builder.modelResolver(modelRef -> {
                     if (modelRef == null || modelRef.isBlank()) return null;
-                    return buildModel(modelRef, false, false);
+                    return buildModel(modelRef, false, null);
                 });
 
                 for (JAgentProperties.SubagentRef subRef : subagentRefs) {
@@ -343,10 +343,10 @@ public class AgentFactory implements AgentRegistry {
      *
      * @param modelRef       模型引用（格式: "provider:model"）
      * @param enableSearch   是否启用联网搜索（仅 dashscope 支持）
-     * @param enableThinking 是否启用推理/思考模式
+     * @param enableThinking 推理/思考模式三态：null 不传参数（服务端默认）；true/false 显式开启/关闭
      * @return Model 对象，或 null（未配置 API Key 时）
      */
-    private Model buildModel(String modelRef, boolean enableSearch, boolean enableThinking) {
+    private Model buildModel(String modelRef, boolean enableSearch, Boolean enableThinking) {
         int colonIdx = modelRef.indexOf(':');
         if (colonIdx <= 0) return null;
 
