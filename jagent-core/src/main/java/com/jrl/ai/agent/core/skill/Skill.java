@@ -121,4 +121,19 @@ public interface Skill {
     default String whenNotToUse() {
         return null;
     }
+
+    /**
+     * 静态优先级（基础分，0.0~1.0）— Skill 自描述的评分基线。
+     *
+     * <p>作为技能自身的固有能力声明，供评分器（如 SkillScoringInterceptor）
+     * 与动态成功率加权计算最终评分。配置侧 skill-priorities 若显式配置，
+     * 则作为运行时覆盖优先生效；未配置时使用本方法返回值。
+     *
+     * <p>默认返回 0.5。
+     *
+     * @return 基础优先级分（0.0~1.0）
+     */
+    default double priority() {
+        return 0.5;
+    }
 }

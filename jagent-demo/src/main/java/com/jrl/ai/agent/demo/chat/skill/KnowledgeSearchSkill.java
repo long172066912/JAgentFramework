@@ -81,6 +81,11 @@ public class KnowledgeSearchSkill implements Skill {
     }
 
     @Override
+    public double priority() {
+        return 0.9;
+    }
+
+    @Override
     public SkillResult execute(SkillContext context) {
         long start = System.currentTimeMillis();
 

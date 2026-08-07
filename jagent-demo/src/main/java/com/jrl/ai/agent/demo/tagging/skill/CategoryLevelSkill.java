@@ -88,6 +88,11 @@ public class CategoryLevelSkill implements Skill {
     }
 
     @Override
+    public double priority() {
+        return 0.8;
+    }
+
+    @Override
     public SkillResult execute(SkillContext context) {
         long start = System.currentTimeMillis();
 

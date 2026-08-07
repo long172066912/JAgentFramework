@@ -68,6 +68,11 @@ public class VectorSearchSkill implements Skill {
         return "任务只要求抽取标签并直接输出 JSON 结果时，不要调用本工具";
     }
 
+    @Override
+    public double priority() {
+        return 0.9;
+    }
+
     @SuppressWarnings("unchecked")
     @Override
     public SkillResult execute(SkillContext context) {

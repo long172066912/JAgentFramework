@@ -48,8 +48,7 @@ jagent:
       session-group: "chat"
       memory-enabled: true
       enable-search: false
-      skill-priorities:
-        knowledge_search: 0.9
+      # skill 基础分已内化为代码中 Skill.priority() 自描述，无需配置；如需运行时覆盖可再加 skill-priorities
       subagents:
         - id: translator
           keywords: ["翻译", "translate", "英文", "中文", "英译中", "中译英"]
@@ -86,8 +85,6 @@ jagent:
       session-group: "chat"
       memory-enabled: true
       enable-search: false
-      skill-priorities:
-        web_search: 1.0
     tagger:
       name: "智能打标助手"
       sys-prompt: "你是一个专业的内容标签抽取引擎。你的任务是分析输入内容，抽取最能代表其语义的标签，并为每个标签确定层级。输出必须是 JSON 格式。\n\n工具调用原则：调用任何工具前，先阅读其描述中的『适用场景』与『禁止场景』，不符合当前任务的一律不调用；没有适用工具时直接输出结果，不要多轮尝试。"
@@ -124,11 +121,6 @@ jagent:
       require-confirm-tools:
         - vector_upsert
         - vector_delete
-      skill-priorities:
-        vector_search: 0.9
-        vector_upsert: 0.7
-        vector_get: 0.5
-        category_level_infer: 0.8
   evaluation:
     enabled: true
     sync-response: false  # 异步评测：不阻塞响应，结果落库后经查询接口获取；true 则同步返回评测

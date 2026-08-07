@@ -64,6 +64,11 @@ public class WebSearchSkill implements Skill {
     }
 
     @Override
+    public double priority() {
+        return 1.0;
+    }
+
+    @Override
     public SkillResult execute(SkillContext context) {
         long start = System.currentTimeMillis();
         log.info("[WebSearch] execute 被调用: parameters={}, input='{}'",

@@ -71,6 +71,11 @@ public class VectorUpsertSkill implements Skill {
         return "任务只要求输出抽取结果、或标签尚未抽取完成时，不要调用本工具";
     }
 
+    @Override
+    public double priority() {
+        return 0.7;
+    }
+
     @SuppressWarnings("unchecked")
     @Override
     public SkillResult execute(SkillContext context) {

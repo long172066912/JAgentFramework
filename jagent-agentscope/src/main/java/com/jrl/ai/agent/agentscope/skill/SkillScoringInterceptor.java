@@ -21,20 +21,21 @@ import java.util.concurrent.ConcurrentHashMap;
  * </ul>
  *
  * <p>评分算法：{@code configuredPriority * 0.4 + successRate * 0.6}。
- * 无执行统计时仅使用配置分，无配置时默认 0.5。
+ * 基础分来源：优先取配置侧 skill-priorities 覆盖值，未配置时使用
+ * Skill 自描述的 {@link Skill#priority()}（默认 0.5）。
  */
 public class SkillScoringInterceptor implements SkillInterceptor, SkillScorer {
 
     private static final Logger log = LoggerFactory.getLogger(SkillScoringInterceptor.class);
 
-    /** 静态配置优先级：agentId -> (skillName -> baseScore) */
+    /** 静态配置优先级（运行时覆盖）：agentId -> (skillName -> baseScore) */
     private final Map<String, Map<String, Double>> configuredPriorities;
 
     /** 动态执行统计：agentId -> (skillName -> [successCount, totalCount]) */
     private final ConcurrentHashMap<String, ConcurrentHashMap<String, int[]>> stats =
             new ConcurrentHashMap<>();
 
-    /** 默认基础分（无配置时使用） */
+    /** 默认基础分（Skill 未自描述 priority 时使用） */
     private static final double DEFAULT_BASE_SCORE = 0.5;
 
     /** 静态配置权重 */
@@ -79,7 +80,7 @@ public class SkillScoringInterceptor implements SkillInterceptor, SkillScorer {
 
     @Override
     public double score(String agentId, Skill skill) {
-        double configScore = getConfiguredScore(agentId, skill.name());
+        double configScore = getConfiguredScore(agentId, skill);
         double statsScore = getStatsScore(agentId, skill.name());
 
         if (statsScore < 0) {
@@ -117,15 +118,20 @@ public class SkillScoringInterceptor implements SkillInterceptor, SkillScorer {
 
     // ===== 内部方法 =====
 
-    private double getConfiguredScore(String agentId, String skillName) {
+    /**
+     * 获取基础分：配置侧覆盖值优先，未配置时回退到 Skill 自描述 priority()。
+     */
+    private double getConfiguredScore(String agentId, Skill skill) {
         Map<String, Double> agentPriorities = configuredPriorities.get(agentId);
         if (agentPriorities != null) {
-            Double priority = agentPriorities.get(skillName);
+            Double priority = agentPriorities.get(skill.name());
             if (priority != null) {
                 return priority;
             }
         }
-        return DEFAULT_BASE_SCORE;
+        // 基础分是 Skill 的固有能力声明，配置仅作运行时覆盖
+        double selfPriority = skill.priority();
+        return selfPriority > 0 ? selfPriority : DEFAULT_BASE_SCORE;
     }
 
     private double getStatsScore(String agentId, String skillName) {
