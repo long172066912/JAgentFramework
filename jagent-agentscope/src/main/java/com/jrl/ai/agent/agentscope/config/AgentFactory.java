@@ -522,8 +522,10 @@ public class AgentFactory implements AgentRegistry {
             String desc = subConfig.getDescription() != null && !subConfig.getDescription().isBlank()
                     ? subConfig.getDescription()
                     : extractDescription(subConfig.getSysPrompt());
-            // keywords 来自 SubagentRef（父 Agent 视角），不是子 Agent 自身配置
-            List<String> keywords = subRef.getKeywords();
+            // keywords 优先取子 Agent 自身能力声明，父侧 SubagentRef.keywords 作覆盖（兼容旧配置）
+            List<String> keywords = subRef.getKeywords() != null && !subRef.getKeywords().isEmpty()
+                    ? subRef.getKeywords()
+                    : subConfig.getKeywords();
 
             rules.append("\n### ").append(subAgentName).append(" (agent_id=\"").append(subName).append("\")\n");
             rules.append("- 能力：").append(desc).append("\n");

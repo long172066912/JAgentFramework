@@ -207,6 +207,8 @@ public class JAgentProperties {
         private String name;
         /** Agent 能力描述（用于子 Agent 调度时自动生成调度规则） */
         private String description;
+        /** Agent 自描述的触发关键词（自身能力声明；被父 Agent 调度时用于生成触发条件，父侧 SubagentRef.keywords 可覆盖） */
+        private List<String> keywords = new ArrayList<>();
         /** 系统提示词（角色定义，静态） */
         private String sysPrompt = "You are a helpful AI assistant.";
         /** 用户提示词模板（支持 {variable} 占位符，每次请求动态渲染） */
@@ -251,6 +253,9 @@ public class JAgentProperties {
 
         public String getDescription() { return description; }
         public void setDescription(String description) { this.description = description; }
+
+        public List<String> getKeywords() { return keywords; }
+        public void setKeywords(List<String> keywords) { this.keywords = keywords; }
 
         public String getSysPrompt() { return sysPrompt; }
         public void setSysPrompt(String sysPrompt) { this.sysPrompt = sysPrompt; }
@@ -342,7 +347,7 @@ public class JAgentProperties {
     public static class SubagentRef {
         /** 子 Agent 标识（引用已配置的 Agent） */
         private String id;
-        /** 触发关键词列表（父 Agent 视角：用户输入包含这些词时调度此子 Agent） */
+        /** 触发关键词列表（可选覆盖：不配则用子 Agent 自身 AgentConfig.keywords 能力声明） */
         private List<String> keywords = new ArrayList<>();
 
         public SubagentRef() {}
