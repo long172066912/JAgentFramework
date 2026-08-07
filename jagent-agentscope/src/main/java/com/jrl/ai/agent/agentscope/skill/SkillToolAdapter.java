@@ -43,7 +43,19 @@ public class SkillToolAdapter implements AgentTool {
 
     @Override
     public String getDescription() {
-        return skill.description();
+        // 基础描述 + Skill 自描述调用边界（关键词/适用场景/禁止场景），供 LLM 在 ReAct 中初筛是否调用
+        StringBuilder sb = new StringBuilder(skill.description());
+        java.util.List<String> keywords = skill.keywords();
+        if (keywords != null && !keywords.isEmpty()) {
+            sb.append("\n关键词：").append(String.join("、", keywords));
+        }
+        if (skill.whenToUse() != null && !skill.whenToUse().isEmpty()) {
+            sb.append("\n适用场景：").append(skill.whenToUse());
+        }
+        if (skill.whenNotToUse() != null && !skill.whenNotToUse().isEmpty()) {
+            sb.append("\n禁止场景：").append(skill.whenNotToUse());
+        }
+        return sb.toString();
     }
 
     @Override
@@ -81,6 +93,11 @@ public class SkillToolAdapter implements AgentTool {
     @Override
     public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
         return Mono.fromCallable(() -> {
+            // 提前解析 tool_call_id — 必须保留以便 OpenAI 格式验证，后续所有分支共用
+            io.agentscope.core.message.ToolUseBlock toolUse = param.getToolUseBlock();
+            String toolCallId = toolUse != null ? toolUse.getId() : "";
+            String toolName = toolUse != null ? toolUse.getName() : skill.name();
+
             // 提取输入 — 兼容 LLM 多种字段命名（query / input / text / q）
             Map<String, Object> input = param.getInput();
             String inputText = "";
@@ -121,16 +138,21 @@ public class SkillToolAdapter implements AgentTool {
             log.info("[SkillToolAdapter] 调用 skill={} inputText='{}' parameters={}",
                     skill.name(), inputText, skillCtx.parameters());
 
+            // 动态调用边界守卫 — Skill 自描述 canInvoke 拒绝时不执行，返回提示信息供模型调整策略
+            if (!skill.canInvoke(skillCtx)) {
+                log.warn("[SkillToolAdapter] skill={} 被动态调用边界拒绝，跳过执行", skill.name());
+                return ToolResultBlock.of(toolCallId, toolName,
+                        io.agentscope.core.message.TextBlock.builder()
+                                .text("调用被拒绝：技能 [" + skill.name() + "] 在当前上下文下不可调用，请改用其他方式完成任务。")
+                                .build());
+            }
+
             // 执行 Skill
             SkillResult result = skill.execute(skillCtx);
 
-            // 转为 ToolResultBlock — 必须保留 tool_call_id 以便 OpenAI 格式验证
+            // 转为 ToolResultBlock（toolCallId/toolName 已在方法开头解析）
             // 重要：ToolResultBlock.text/error 工厂会把 id 设为 null，会导致
             // OpenAI API 返回 "messages with role 'tool' must be a response to a preceeding tool_calls" 错误
-            io.agentscope.core.message.ToolUseBlock toolUse = param.getToolUseBlock();
-            String toolCallId = toolUse != null ? toolUse.getId() : "";
-            String toolName = toolUse != null ? toolUse.getName() : skill.name();
-
             if (result.success()) {
                 return ToolResultBlock.of(toolCallId, toolName,
                         io.agentscope.core.message.TextBlock.builder()

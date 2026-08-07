@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -41,6 +42,27 @@ public class VectorGetSkill implements Skill {
     @Override
     public String description() {
         return "根据 ID 列表从 Milvus 批量查询标签向量数据。输入参数：collection(集合名称)、ids(ID列表)。返回标签详情。";
+    }
+
+    @Override
+    public Set<String> applicableAgents() {
+        // 静态挂载边界：向量查询是打标场景专属能力，只对 tagger 可见
+        return Set.of("tagger");
+    }
+
+    @Override
+    public List<String> keywords() {
+        return List.of("标签详情查询", "按ID批量获取");
+    }
+
+    @Override
+    public String whenToUse() {
+        return "已拿到标签 ID、需要查看其完整详情（类目、置信度、关键词等）时调用";
+    }
+
+    @Override
+    public String whenNotToUse() {
+        return "任务只要求抽取标签并直接输出 JSON 结果时，不要调用本工具";
     }
 
     @SuppressWarnings("unchecked")

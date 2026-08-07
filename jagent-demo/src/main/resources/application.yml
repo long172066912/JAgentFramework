@@ -90,7 +90,7 @@ jagent:
         web_search: 1.0
     tagger:
       name: "智能打标助手"
-      sys-prompt: "你是一个专业的内容标签抽取引擎。你的任务是分析输入内容，抽取最能代表其语义的标签，并为每个标签确定层级。输出必须是 JSON 格式。"
+      sys-prompt: "你是一个专业的内容标签抽取引擎。你的任务是分析输入内容，抽取最能代表其语义的标签，并为每个标签确定层级。输出必须是 JSON 格式。\n\n工具调用原则：调用任何工具前，先阅读其描述中的『适用场景』与『禁止场景』，不符合当前任务的一律不调用；没有适用工具时直接输出结果，不要多轮尝试。"
       user-prompt-template: |
         请分析以下{contentType}内容，抽取语义标签。
         
@@ -117,6 +117,8 @@ jagent:
         ```
       model: "openai:qwen3.8-max-preview"
       enable-thinking: false  # 显式关闭思考模式：qwen3 默认思考，抽取类任务关掉可大幅提速
+      # 工具边界不再靠空白名单：vector/category 类 Skill 已通过 applicableAgents() 声明仅 tagger 可见，
+      # 其他 Agent 不会注入这些工具定义；是否调用由 sys-prompt 约束 + canInvoke 动态守卫控制
       max-iters: 2
       max-retries: 3
       require-confirm-tools:

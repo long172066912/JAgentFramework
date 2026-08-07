@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 向量写入 Skill — Agent 通过此 Skill 将标签向量写入 Milvus。
@@ -40,6 +41,34 @@ public class VectorUpsertSkill implements Skill {
     @Override
     public String description() {
         return "批量写入或更新向量到 Milvus。输入参数：collection(集合名称)、tags(标签列表)。返回写入成功数量。";
+    }
+
+    @Override
+    public Set<String> applicableAgents() {
+        // 静态挂载边界：向量写入是打标场景专属能力，只对 tagger 可见
+        return Set.of("tagger");
+    }
+
+    @Override
+    public boolean canInvoke(SkillContext context) {
+        // 动态调用边界：写操作要求必须携带非空 tags 参数，否则拒绝执行
+        Object tags = context.parameters().get("tags");
+        return tags instanceof List<?> list && !list.isEmpty();
+    }
+
+    @Override
+    public List<String> keywords() {
+        return List.of("标签写入", "向量入库", "批量保存");
+    }
+
+    @Override
+    public String whenToUse() {
+        return "标签抽取已完成、且任务明确要求将新标签持久化写入向量库时才调用";
+    }
+
+    @Override
+    public String whenNotToUse() {
+        return "任务只要求输出抽取结果、或标签尚未抽取完成时，不要调用本工具";
     }
 
     @SuppressWarnings("unchecked")

@@ -6,7 +6,9 @@ import com.jrl.ai.agent.core.skill.SkillResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 类目层级推断 Skill — 根据标签类目名称推断标签层级。
@@ -62,6 +64,27 @@ public class CategoryLevelSkill implements Skill {
     @Override
     public String description() {
         return "根据标签类目名称推断标签层级（1/2/3）。输入参数：category（类目名称）。";
+    }
+
+    @Override
+    public Set<String> applicableAgents() {
+        // 静态挂载边界：类目层级推断是打标场景专属能力，只对 tagger 可见
+        return Set.of("tagger");
+    }
+
+    @Override
+    public List<String> keywords() {
+        return List.of("类目层级", "标签级别推断");
+    }
+
+    @Override
+    public String whenToUse() {
+        return "已确定标签的类目名称、需要据此推断其层级（1/2/3）时调用";
+    }
+
+    @Override
+    public String whenNotToUse() {
+        return "仅凭抽取结果即可直接确定层级、或任务不要求输出层级时，不要调用本工具";
     }
 
     @Override

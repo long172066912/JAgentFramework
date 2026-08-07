@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -44,6 +45,27 @@ public class VectorSearchSkill implements Skill {
     @Override
     public String description() {
         return "根据查询向量在 Milvus 中检索语义相似的标签。输入参数：collection(集合名称)、vector(查询向量)、topK(返回数量)、filter(过滤表达式)、minScore(最小相似度)。返回相似标签列表。";
+    }
+
+    @Override
+    public Set<String> applicableAgents() {
+        // 静态挂载边界：向量检索是打标场景专属能力，只对 tagger 可见
+        return Set.of("tagger");
+    }
+
+    @Override
+    public List<String> keywords() {
+        return List.of("标签去重", "语义相似检索", "已有标签查询");
+    }
+
+    @Override
+    public String whenToUse() {
+        return "需要在新建标签前查重，确认向量库中是否已存在语义相似的标签时调用";
+    }
+
+    @Override
+    public String whenNotToUse() {
+        return "任务只要求抽取标签并直接输出 JSON 结果时，不要调用本工具";
     }
 
     @SuppressWarnings("unchecked")

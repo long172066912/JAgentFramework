@@ -219,6 +219,8 @@ public class JAgentProperties {
         private int maxRetries = 3;
         /** Skill 优先级配置：skillName -> 基础分 (0.0~1.0) */
         private Map<String, Double> skillPriorities = new LinkedHashMap<>();
+        /** Skill 白名单：null 不配置=挂载全部（兼容旧行为）；空列表=不挂任何工具；非空=仅挂载列表内 */
+        private List<String> skills;
         /** 是否启用会话持久化（默认 false，单次任务无需保持会话历史） */
         private boolean sessionEnabled = false;
         /** 是否启用记忆工具（默认 false，单次任务无需记忆读写） */
@@ -267,6 +269,9 @@ public class JAgentProperties {
 
         public Map<String, Double> getSkillPriorities() { return skillPriorities; }
         public void setSkillPriorities(Map<String, Double> skillPriorities) { this.skillPriorities = skillPriorities; }
+
+        public List<String> getSkills() { return skills; }
+        public void setSkills(List<String> skills) { this.skills = skills; }
 
         public boolean isSessionEnabled() { return sessionEnabled; }
         public void setSessionEnabled(boolean sessionEnabled) { this.sessionEnabled = sessionEnabled; }

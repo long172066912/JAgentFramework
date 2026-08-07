@@ -260,9 +260,9 @@ public class AgentFactory implements AgentRegistry {
                 builder.model(config.getModel());
             }
 
-            // 挂载 Skill 工具到 Toolkit
+            // 挂载 Skill 工具到 Toolkit（支持 agent 级白名单：不配置=全部，空列表=不挂，非空=仅列表内）
             if (skillRegistry != null && !skillRegistry.all().isEmpty()) {
-                Toolkit toolkit = buildToolkit(key, skillRegistry);
+                Toolkit toolkit = buildToolkit(key, skillRegistry, config.getSkills());
                 builder.toolkit(toolkit);
             }
 
@@ -386,17 +386,38 @@ public class AgentFactory implements AgentRegistry {
     }
 
     /**
-     * 构建 Toolkit 并注册所有 Skill 为 AgentTool。
+     * 构建 Toolkit 并注册 Skill 为 AgentTool。
+     *
+     * <p>双重挂载边界（取交集）：
+     * <ul>
+     *   <li>配置侧 yml {@code skills} 白名单：null=全部，空列表=不挂，非空=仅列表内</li>
+     *   <li>Skill 自描述 {@code applicableAgents()}：null/空=不限，非空=仅限声明的 agentKey</li>
+     * </ul>
+     * 边界外的 Agent 看不到工具定义，既防误调又省 prompt tokens。
      *
      * @param agentKey      Agent 标识（用于日志）
      * @param skillRegistry Skill 注册表
-     * @return 已注册所有 Skill 的 Toolkit
+     * @param whitelist     配置侧 Skill 白名单（可为 null）
+     * @return 已注册筛选后 Skill 的 Toolkit
      */
-    private Toolkit buildToolkit(String agentKey, SkillRegistry skillRegistry) {
+        private Toolkit buildToolkit(String agentKey, SkillRegistry skillRegistry, List<String> whitelist) {
         Toolkit toolkit = new Toolkit();
         for (Skill skill : skillRegistry.all()) {
+            // 配置侧白名单过滤
+            if (whitelist != null && !whitelist.contains(skill.name())) {
+                continue;
+            }
+            // Skill 自描述挂载边界过滤
+            java.util.Set<String> applicable = skill.applicableAgents();
+            if (applicable != null && !applicable.isEmpty() && !applicable.contains(agentKey)) {
+                log.debug("Agent [{}] 不在 Skill [{}] 的适用边界内，跳过挂载", agentKey, skill.name());
+                continue;
+            }
             log.info("Agent [{}] 挂载 Skill 工具: {}", agentKey, skill.name());
             toolkit.registerAgentTool(new SkillToolAdapter(skill));
+        }
+        if (whitelist != null && whitelist.isEmpty()) {
+            log.info("Agent [{}] 配置了空白名单，不挂载任何 Skill 工具", agentKey);
         }
         return toolkit;
     }
